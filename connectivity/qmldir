@@ -1,0 +1,12 @@
+singleton Theme 1.0 Theme.qml
+singleton SpeedTest 1.0 SpeedTest.qml
+ListRow 1.0 ListRow.qml
+ScrollTrack 1.0 ScrollTrack.qml
+Toggle 1.0 Toggle.qml
+Seg 1.0 Seg.qml
+Field 1.0 Field.qml
+ConfigBlock 1.0 ConfigBlock.qml
+SpeedSection 1.0 SpeedSection.qml
+WifiPane 1.0 WifiPane.qml
+WiredPane 1.0 WiredPane.qml
+BtPane 1.0 BtPane.qml

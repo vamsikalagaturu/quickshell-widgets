@@ -1,6 +1,6 @@
 # Quickshell Usage Widget
 
-A small Hyprland/Quickshell widget showing live usage for **Codex** (weekly) and **Claude Code** (5-hour + weekly) as progress bars with reset times. Shows on startup for 5s, then hides; toggle with **SUPER + ;**.
+A small Hyprland/Quickshell widget showing live usage for **Codex** (weekly) and **Claude Code** (5-hour + weekly) as progress bars with reset times, plus a **Quickshell app launcher** that replaces walker. Widget shows on startup for 5s, then hides; toggle with **SUPER + ;**. Launcher opens with **SUPER + D**.
 
 ## Dependencies
 
