@@ -9,8 +9,18 @@ import Quickshell.Hyprland._FocusGrab
 // Backed by cliphist, whose wl-paste watchers already run from
 // hypr/startup.conf -- this is only a picker over `cliphist list`.
 //
-// Search-first like the launcher: the TextInput owns focus throughout, so
-// navigation is arrows plus readline-style Ctrl+N/P and Ctrl+J/K.
+// MODAL, vim-style. Three modes:
+//
+//   list     (default)  j/k move, l enter preview, / search, y copy entry,
+//                       d delete, Esc close
+//   search   ('/')      typing filters, Esc cancels, Enter accepts
+//   preview  ('l')      vim normal/visual motions inside VimTextView;
+//                       y yanks the selection, Esc returns to list
+//
+// Focus follows the mode: panelBg owns keys in list mode, the search
+// TextInput only in search mode, VimTextView only in preview mode. Single-
+// letter bindings are safe because the text field only holds focus while
+// mode === "search".
 PanelWindow {
     id: win
     visible: false
@@ -26,20 +36,42 @@ PanelWindow {
     implicitWidth: Theme.s(940)
     implicitHeight: Theme.s(580)
 
-    // list / preview split
     readonly property real listFrac: 0.44
 
     property var entries: []      // [{id, preview, image}]
     property var filtered: []
     property int selection: 0
+    property bool confirmDelete: false
     property bool confirmWipe: false
     property string flashMsg: ""
+    property string filterText: ""
+
+    // "list" | "search" | "preview"
+    property string mode: "list"
 
     readonly property int rowHeight: Theme.s(40)
     readonly property var current: filtered[selection] || null
 
     function flash(m) { win.flashMsg = m; flashTimer.restart() }
     Timer { id: flashTimer; interval: 1800; onTriggered: win.flashMsg = "" }
+
+    // ---- modes ----
+    function enterList() {
+        win.mode = "list"
+        panelBg.forceActiveFocus()
+    }
+
+    function enterSearch() {
+        win.mode = "search"
+        query.forceActiveFocus()
+    }
+
+    function enterPreview() {
+        if (win.previewText === "") { win.flash("nothing to select here"); return }
+        win.mode = "preview"
+        previewView.reset()
+        previewView.forceActiveFocus()
+    }
 
     // ---- load ----
     function reload() {
@@ -77,7 +109,7 @@ PanelWindow {
     }
 
     function applyFilter() {
-        var q = query.text.trim().toLowerCase()
+        var q = win.filterText.trim().toLowerCase()
         if (q === "") {
             filtered = entries
         } else {
@@ -96,7 +128,14 @@ PanelWindow {
         list.positionViewAtIndex(selection, ListView.Contain)
     }
 
+    function jump(toLast) {
+        if (filtered.length === 0) return
+        selection = toLast ? filtered.length - 1 : 0
+        list.positionViewAtIndex(selection, ListView.Contain)
+    }
+
     // ---- actions ----
+    //
     // `cliphist decode` takes the list line on STDIN, not as an argument --
     // a positional id fails with "input not prefixed with id". The id must
     // be tab-terminated, which is enough; no need to re-list every entry.
@@ -110,6 +149,15 @@ PanelWindow {
         win.close()
     }
 
+    // Yank of a vim selection. Goes through Quickshell.clipboardText rather
+    // than `sh -c "... | wl-copy"` on purpose: the text is arbitrary user
+    // content and must never be interpolated into a shell command.
+    function yankFragment(content) {
+        if (!content || content.length === 0) { win.flash("nothing selected"); return }
+        Quickshell.clipboardText = content
+        win.close()
+    }
+
     function deleteCurrent() {
         var e = win.current
         if (!e) return
@@ -120,9 +168,7 @@ PanelWindow {
         delProc.running = true
     }
 
-    function wipeAll() {
-        wipeProc.running = true
-    }
+    function wipeAll() { wipeProc.running = true }
 
     Process { id: copyProc }
     Process {
@@ -135,14 +181,12 @@ PanelWindow {
         onExited: { win.flash("history cleared"); win.reload() }
     }
 
-    // ---- preview of the selected entry. Images decode to a temp file and
-    // render as a thumbnail; text decodes to stdout so the pane can show the
-    // FULL content, not just the one-line summary cliphist puts in `list`. ----
+    // ---- preview of the selected entry ----
     property string previewPath: ""
     property string previewText: ""
     property bool previewTruncated: false
 
-    // Debounced: holding j/k would otherwise spawn a decode per row.
+    // Debounced: holding j would otherwise spawn a decode per row.
     Timer {
         id: previewDebounce
         interval: 110
@@ -156,13 +200,14 @@ PanelWindow {
         win.previewTruncated = false
         if (!e) return
         if (e.image) {
+            // don't strand the mode on a now-hidden text view
+            if (win.mode === "preview") win.enterList()
             var p = "/tmp/qs-clip-preview-" + e.id
             imgProc.command = ["sh", "-c", win.decodeCmd(e.id) + " > " + p]
             imgProc.pendingPath = p
             imgProc.running = true
         } else {
-            // cap it -- a clipboard entry can be megabytes and the pane only
-            // ever shows a screenful
+            // cap it -- an entry can be megabytes, the pane shows a screenful
             txtProc.command = ["sh", "-c", win.decodeCmd(e.id) + " | head -c 20000"]
             txtProc.running = true
         }
@@ -189,18 +234,24 @@ PanelWindow {
 
     function open() {
         win.visible = true
+        win.filterText = ""
         query.text = ""
+        win.confirmDelete = false
         win.confirmWipe = false
         win.flashMsg = ""
         win.previewPath = ""
+        win.previewText = ""
         win.reload()
-        query.forceActiveFocus()
+        win.enterList()
     }
 
     function close() {
         win.visible = false
+        win.filterText = ""
         query.text = ""
+        win.confirmDelete = false
         win.confirmWipe = false
+        win.mode = "list"
     }
 
     Rectangle {
@@ -210,6 +261,44 @@ PanelWindow {
         color: "#f20c0e11"
         border.width: 1
         border.color: "#1e2228"
+        focus: true
+
+        // ---- list-mode key router ----
+        Keys.onPressed: event => {
+            var txt = event.text
+            var k = event.key
+
+            if (win.confirmDelete || win.confirmWipe) {
+                if (txt.toLowerCase() === "y") {
+                    if (win.confirmDelete) win.deleteCurrent()
+                    else win.wipeAll()
+                } // anything else cancels
+                win.confirmDelete = false
+                win.confirmWipe = false
+                event.accepted = true
+                return
+            }
+
+            if (k === Qt.Key_Escape) { win.close(); event.accepted = true; return }
+
+            if (txt === "j" || k === Qt.Key_Down) { win.move(1); event.accepted = true }
+            else if (txt === "k" || k === Qt.Key_Up) { win.move(-1); event.accepted = true }
+            else if (txt === "l" || k === Qt.Key_Right) { win.enterPreview(); event.accepted = true }
+            else if (txt === "h" || k === Qt.Key_Left) { /* already leftmost */ event.accepted = true }
+            else if (txt === "g") { win.jump(false); event.accepted = true }
+            else if (txt === "G") { win.jump(true); event.accepted = true }
+            else if (k === Qt.Key_PageDown) { win.move(8); event.accepted = true }
+            else if (k === Qt.Key_PageUp) { win.move(-8); event.accepted = true }
+            else if (txt === "/") { win.enterSearch(); event.accepted = true }
+            else if (txt === "y" || k === Qt.Key_Return || k === Qt.Key_Enter) {
+                win.copyCurrent(); event.accepted = true
+            }
+            else if (txt === "d") {
+                if (win.current) win.confirmDelete = true
+                event.accepted = true
+            }
+            else if (txt === "D") { win.confirmWipe = true; event.accepted = true }
+        }
 
         // ---- search ----
         Rectangle {
@@ -220,14 +309,14 @@ PanelWindow {
             height: Theme.s(44)
             radius: Theme.s(10)
             color: Theme.surfaceAlt
-            border.width: 1
-            border.color: query.activeFocus ? Theme.accent : Theme.line
+            border.width: win.mode === "search" ? 1 : 0
+            border.color: Theme.accent
 
             Text {
                 anchors.left: parent.left; anchors.leftMargin: Theme.s(14)
                 anchors.verticalCenter: parent.verticalCenter
-                visible: query.text.length === 0
-                text: "Search clipboard history"
+                visible: win.filterText.length === 0
+                text: win.mode === "search" ? "type to filter…" : "press / to search"
                 font.pixelSize: Theme.s(14)
                 color: Theme.muted
             }
@@ -243,36 +332,28 @@ PanelWindow {
                 color: Theme.text
                 selectionColor: Theme.accentDim
                 clip: true
-                onTextChanged: win.applyFilter()
+                activeFocusOnTab: false
+                onTextChanged: { win.filterText = text; win.applyFilter() }
 
                 Keys.onPressed: event => {
                     var ctrl = (event.modifiers & Qt.ControlModifier) !== 0
-
-                    if (win.confirmWipe) {
-                        if (event.text.toLowerCase() === "y") { win.wipeAll(); win.confirmWipe = false }
-                        else win.confirmWipe = false
-                        event.accepted = true
-                        return
-                    }
-
                     if (event.key === Qt.Key_Escape) {
-                        win.close(); event.accepted = true
+                        // cancel the search outright
+                        query.text = ""
+                        win.filterText = ""
+                        win.applyFilter()
+                        win.enterList()
+                        event.accepted = true
                     } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                        win.copyCurrent(); event.accepted = true
+                        // keep the filter, hand keys back to list mode
+                        win.enterList()
+                        event.accepted = true
                     } else if (event.key === Qt.Key_Down
                                || (ctrl && (event.key === Qt.Key_N || event.key === Qt.Key_J))) {
                         win.move(1); event.accepted = true
                     } else if (event.key === Qt.Key_Up
                                || (ctrl && (event.key === Qt.Key_P || event.key === Qt.Key_K))) {
                         win.move(-1); event.accepted = true
-                    } else if (event.key === Qt.Key_PageDown) {
-                        win.move(8); event.accepted = true
-                    } else if (event.key === Qt.Key_PageUp) {
-                        win.move(-8); event.accepted = true
-                    } else if (ctrl && event.key === Qt.Key_D) {
-                        win.deleteCurrent(); event.accepted = true
-                    } else if (ctrl && event.key === Qt.Key_W) {
-                        win.confirmWipe = true; event.accepted = true
                     } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
                         event.accepted = true
                     }
@@ -312,7 +393,7 @@ PanelWindow {
                 radius: Theme.s(8)
                 color: index === win.selection ? Theme.surfaceAlt : "transparent"
                 border.width: index === win.selection ? 1 : 0
-                border.color: Theme.accent
+                border.color: win.mode === "preview" ? Theme.line : Theme.accent
 
                 MouseArea {
                     anchors.fill: parent
@@ -369,12 +450,12 @@ PanelWindow {
             wrapMode: Text.WordWrap
             text: win.entries.length === 0
                 ? "clipboard history is empty"
-                : "no matches for “" + query.text.trim() + "”"
+                : "no matches for “" + win.filterText.trim() + "”"
             font.pixelSize: Theme.s(12)
             color: Theme.muted
         }
 
-        // ---- preview (right pane), full height so images get real room ----
+        // ---- preview (right pane) ----
         Rectangle {
             id: preview
             anchors.top: list.top
@@ -383,9 +464,10 @@ PanelWindow {
             anchors.right: parent.right; anchors.rightMargin: Theme.s(16)
             radius: Theme.s(10)
             color: Theme.surface
+            border.width: win.mode === "preview" ? 1 : 0
+            border.color: Theme.accent
             clip: true
 
-            // image entries
             Image {
                 id: previewImage
                 visible: win.previewPath !== ""
@@ -408,34 +490,38 @@ PanelWindow {
                 color: Theme.muted
             }
 
-            // text entries -- full content, scrollable
-            Flickable {
-                id: textFlick
+            // text entries -- full content with vim motions for selecting
+            VimTextView {
+                id: previewView
                 visible: win.previewText !== ""
                 anchors.fill: parent
                 anchors.margins: Theme.s(12)
-                contentWidth: width
-                contentHeight: previewLabel.implicitHeight
-                clip: true
-                boundsBehavior: Flickable.StopAtBounds
+                focus: win.mode === "preview"
+                textColor: win.mode === "preview" ? Theme.text : Theme.dim
+                text: win.previewText + (win.previewTruncated ? "\n\n… truncated" : "")
 
-                Text {
-                    id: previewLabel
-                    width: textFlick.width
-                    text: win.previewText + (win.previewTruncated ? "\n\n… truncated" : "")
-                    wrapMode: Text.Wrap
-                    font.family: Theme.mono
-                    font.pixelSize: Theme.s(11)
-                    color: Theme.dim
-                }
+                onYanked: content => win.yankFragment(content)
+                onExited: win.enterList()
             }
 
-            ScrollTrack {
-                flick: textFlick
-                visible: textFlick.visible && needed
-                anchors.right: parent.right; anchors.rightMargin: Theme.s(4)
-                anchors.top: parent.top; anchors.topMargin: Theme.s(10)
-                anchors.bottom: parent.bottom; anchors.bottomMargin: Theme.s(10)
+            Rectangle {
+                visible: win.mode === "preview"
+                anchors.top: parent.top; anchors.topMargin: Theme.s(6)
+                anchors.right: parent.right; anchors.rightMargin: Theme.s(8)
+                width: modeText.implicitWidth + Theme.s(12)
+                height: Theme.s(16)
+                radius: Theme.s(4)
+                color: previewView.visual !== "" ? Theme.accentDim : Theme.line
+
+                Text {
+                    id: modeText
+                    anchors.centerIn: parent
+                    text: previewView.modeLabel
+                    font.family: Theme.mono
+                    font.pixelSize: Theme.s(9)
+                    font.bold: true
+                    color: Theme.text
+                }
             }
 
             Text {
@@ -465,15 +551,16 @@ PanelWindow {
             height: Theme.s(18)
 
             Text {
-                visible: win.confirmWipe
+                visible: win.confirmDelete || win.confirmWipe
                 anchors.fill: parent
                 verticalAlignment: Text.AlignVCenter
-                text: "wipe entire clipboard history?  y/n"
+                text: win.confirmWipe ? "wipe entire clipboard history?  y/n"
+                                      : "delete this entry?  y/n"
                 font.pixelSize: Theme.s(13)
                 color: Theme.warn
             }
             Text {
-                visible: !win.confirmWipe && win.flashMsg !== ""
+                visible: !win.confirmDelete && !win.confirmWipe && win.flashMsg !== ""
                 anchors.fill: parent
                 verticalAlignment: Text.AlignVCenter
                 text: win.flashMsg
@@ -481,13 +568,17 @@ PanelWindow {
                 color: Theme.accent
             }
             Text {
-                visible: !win.confirmWipe && win.flashMsg === ""
+                visible: !win.confirmDelete && !win.confirmWipe && win.flashMsg === ""
                 anchors.fill: parent
                 verticalAlignment: Text.AlignVCenter
                 elide: Text.ElideRight
-                text: "↑↓ or Ctrl+n/p move  ·  Enter copy  ·  Ctrl+d delete  ·  Ctrl+w wipe  ·  Esc close"
                 font.pixelSize: Theme.s(12)
                 color: Theme.dim
+                text: win.mode === "preview"
+                    ? "h j k l  w b e  0 ^ $  gg G  { }  ·  v / V visual  ·  y yank  ·  Esc back"
+                    : win.mode === "search"
+                    ? "type to filter  ·  ↑↓ move  ·  Enter accept  ·  Esc cancel search"
+                    : "j/k move  ·  l preview  ·  / search  ·  y copy  ·  d delete  ·  D wipe  ·  Esc close"
             }
         }
     }
