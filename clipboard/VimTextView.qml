@@ -40,6 +40,20 @@ FocusScope {
     property int cursor: 0
     readonly property int cursorPos: view.cursor
 
+    // Caret geometry. positionToRectangle() is a function, not a bindable
+    // property, so this can't be a binding -- updateCaret() is called from
+    // every motion and whenever the text or width changes.
+    property real caretX: 0
+    property real caretY: 0
+    property real caretH: 0
+
+    function updateCaret() {
+        var r = edit.positionToRectangle(Math.max(0, Math.min(edit.length, view.cursor)))
+        view.caretX = r.x
+        view.caretY = r.y
+        view.caretH = r.height
+    }
+
     readonly property string modeLabel: visual === "char" ? "VISUAL"
         : visual === "line" ? "V-LINE" : "NORMAL"
     readonly property string selection: edit.selectedText
@@ -55,6 +69,7 @@ FocusScope {
         edit.select(0, 0)
         edit.cursorPosition = 0
         flick.contentY = 0
+        updateCaret()
     }
 
     function takeCount(def) {
@@ -82,6 +97,7 @@ FocusScope {
             // normal mode: no selection, just move the caret
             edit.cursorPosition = pos
         }
+        updateCaret()
         ensureCursorVisible()
     }
 
@@ -244,30 +260,55 @@ FocusScope {
         id: flick
         anchors.fill: parent
         contentWidth: width
-        contentHeight: edit.implicitHeight
+        contentHeight: content.height
         clip: true
         boundsBehavior: Flickable.StopAtBounds
 
-        TextEdit {
-            id: edit
+        Item {
+            id: content
             width: flick.width
-            readOnly: true
-            selectByMouse: true
-            persistentSelection: true
-            activeFocusOnPress: false   // the router owns focus; clicks must not steal it
-            wrapMode: TextEdit.Wrap
-            font.family: Theme.mono
-            font.pixelSize: view.fontSize
-            color: view.textColor
-            selectionColor: Theme.accentDim
-            selectedTextColor: Theme.text
+            height: edit.implicitHeight
 
-            // block caret, so the position is visible in a read-only view
-            cursorDelegate: Rectangle {
+            // Block caret drawn BEHIND the text (declared first) so the
+            // character under the cursor stays readable. TextEdit's own
+            // cursorDelegate is no use here: `edit` never takes activeFocus
+            // (the FocusScope does), and in visual mode its cursor sits
+            // wherever select() left it rather than at the vim cursor.
+            Rectangle {
                 visible: view.activeFocus
-                width: Math.max(2, edit.cursorRectangle.height * 0.5)
+                x: view.caretX
+                y: view.caretY
+                width: charWidth.advanceWidth > 0 ? charWidth.advanceWidth : Math.max(2, view.caretH * 0.5)
+                height: view.caretH
+                radius: 1
                 color: Theme.accent
-                opacity: 0.55
+                opacity: view.visual !== "" ? 0.85 : 0.45
+            }
+
+            TextEdit {
+                id: edit
+                width: content.width
+                readOnly: true
+                selectByMouse: true
+                persistentSelection: true
+                activeFocusOnPress: false   // the router owns focus; clicks must not steal it
+                cursorVisible: false        // we draw our own, at the vim cursor
+                wrapMode: TextEdit.Wrap
+                font.family: Theme.mono
+                font.pixelSize: view.fontSize
+                color: view.textColor
+                selectionColor: Theme.accentDim
+                selectedTextColor: Theme.text
+
+                onTextChanged: Qt.callLater(view.updateCaret)
+                onWidthChanged: Qt.callLater(view.updateCaret)
+            }
+
+            // monospace, so one glyph's advance is the block width
+            TextMetrics {
+                id: charWidth
+                font: edit.font
+                text: "M"
             }
         }
     }
