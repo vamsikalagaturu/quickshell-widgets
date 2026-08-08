@@ -5,14 +5,15 @@ import Quickshell.Wayland
 import Quickshell.Hyprland._GlobalShortcuts
 import Quickshell.Hyprland._FocusGrab
 
-// App launcher, styled to match the network panel (connectivity/): same
-// Theme tokens, same 150% scale knob, same row/focus treatment, same
-// scroll track and footnote rule.
+// App launcher, styled to match the network panel (connectivity/) and using
+// the same modal keyboard model as the clipboard picker.
 //
-// Keyboard model differs from the network panel on purpose. This is
-// search-first -- the TextInput owns focus the whole time -- so single-letter
-// vim bindings are impossible. Navigation is arrows plus the readline-style
-// Ctrl+N/Ctrl+P, Ctrl+J/Ctrl+K, and Home/End/PageUp/PageDown.
+//   list    (default)  j/k move, g/G ends, Enter launch, / search, Esc close
+//   search  ('/')      typing filters, Esc cancels, Enter launches,
+//                      arrows / Ctrl+N/P still move the selection
+//
+// Single-letter bindings are safe because the TextInput only holds focus
+// while mode === "search"; panelBg owns keys otherwise.
 PanelWindow {
     id: win
     visible: false
@@ -31,8 +32,22 @@ PanelWindow {
     property var allApps: DesktopEntries.applications
     property var filtered: []
     property int selection: 0
+    property string filterText: ""
+
+    // "list" | "search"
+    property string mode: "list"
 
     readonly property int rowHeight: Theme.s(46)
+
+    function enterList() {
+        win.mode = "list"
+        panelBg.forceActiveFocus()
+    }
+
+    function enterSearch() {
+        win.mode = "search"
+        query.forceActiveFocus()
+    }
 
     function matches(a, q) {
         if (a.noDisplay) return false
@@ -55,7 +70,7 @@ PanelWindow {
     }
 
     function updateFilter() {
-        var q = query.text.trim().toLowerCase()
+        var q = win.filterText.trim().toLowerCase()
         var out = []
         var vals = allApps.values
         for (var i = 0; i < vals.length; i++)
@@ -84,14 +99,17 @@ PanelWindow {
 
     function open() {
         win.visible = true
+        win.filterText = ""
         query.text = ""
         updateFilter()
-        query.forceActiveFocus()
+        win.enterList()
     }
 
     function closeLauncher() {
         win.visible = false
+        win.filterText = ""
         query.text = ""
+        win.mode = "list"
     }
 
     function launchCurrent() {
@@ -108,6 +126,25 @@ PanelWindow {
         color: "#f20c0e11"
         border.width: 1
         border.color: "#1e2228"
+        focus: true
+
+        // ---- list-mode key router ----
+        Keys.onPressed: event => {
+            var txt = event.text
+            var k = event.key
+
+            if (k === Qt.Key_Escape) { win.closeLauncher(); event.accepted = true }
+            else if (txt === "j" || k === Qt.Key_Down) { win.move(1); event.accepted = true }
+            else if (txt === "k" || k === Qt.Key_Up) { win.move(-1); event.accepted = true }
+            else if (txt === "g") { win.jump(false); event.accepted = true }
+            else if (txt === "G") { win.jump(true); event.accepted = true }
+            else if (k === Qt.Key_PageDown) { win.move(8); event.accepted = true }
+            else if (k === Qt.Key_PageUp) { win.move(-8); event.accepted = true }
+            else if (txt === "/") { win.enterSearch(); event.accepted = true }
+            else if (k === Qt.Key_Return || k === Qt.Key_Enter) {
+                win.launchCurrent(); event.accepted = true
+            }
+        }
 
         // ---- search ----
         Rectangle {
@@ -118,15 +155,15 @@ PanelWindow {
             height: Theme.s(44)
             radius: Theme.s(10)
             color: Theme.surfaceAlt
-            border.width: 1
-            border.color: query.activeFocus ? Theme.accent : Theme.line
+            border.width: win.mode === "search" ? 1 : 0
+            border.color: Theme.accent
 
             Text {
                 anchors.left: parent.left
                 anchors.leftMargin: Theme.s(14)
                 anchors.verticalCenter: parent.verticalCenter
-                visible: query.text.length === 0
-                text: "Search apps"
+                visible: win.filterText.length === 0
+                text: win.mode === "search" ? "type to filter…" : "press / to search apps"
                 font.pixelSize: Theme.s(14)
                 color: Theme.muted
             }
@@ -142,13 +179,23 @@ PanelWindow {
                 color: Theme.text
                 selectionColor: Theme.accentDim
                 clip: true
-                onTextChanged: win.updateFilter()
+                activeFocusOnTab: false
+                onTextChanged: { win.filterText = text; win.updateFilter() }
 
                 Keys.onPressed: event => {
                     var ctrl = (event.modifiers & Qt.ControlModifier) !== 0
                     if (event.key === Qt.Key_Escape) {
-                        win.closeLauncher(); event.accepted = true
+                        // cancel the search, back to list mode -- Esc again closes
+                        query.text = ""
+                        win.filterText = ""
+                        win.updateFilter()
+                        win.enterList()
+                        event.accepted = true
                     } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                        // launch straight from search; the clipboard picker
+                        // returns to list here instead, but a launcher's whole
+                        // point is type-then-go, and a second Enter would be
+                        // friction on every single launch
                         win.launchCurrent(); event.accepted = true
                     } else if (event.key === Qt.Key_Down
                                || (ctrl && (event.key === Qt.Key_N || event.key === Qt.Key_J))) {
@@ -160,12 +207,7 @@ PanelWindow {
                         win.move(8); event.accepted = true
                     } else if (event.key === Qt.Key_PageUp) {
                         win.move(-8); event.accepted = true
-                    } else if (event.key === Qt.Key_Home && ctrl) {
-                        win.jump(false); event.accepted = true
-                    } else if (event.key === Qt.Key_End && ctrl) {
-                        win.jump(true); event.accepted = true
                     } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
-                        // never let Tab move focus off the search field
                         event.accepted = true
                     }
                 }
@@ -273,7 +315,8 @@ PanelWindow {
         Text {
             visible: win.filtered.length === 0
             anchors.centerIn: list
-            text: query.text.trim() === "" ? "no applications found" : "no matches for “" + query.text.trim() + "”"
+            text: win.filterText.trim() === "" ? "no applications found"
+                                              : "no matches for “" + win.filterText.trim() + "”"
             font.pixelSize: Theme.s(12)
             color: Theme.muted
         }
@@ -299,7 +342,9 @@ PanelWindow {
                 anchors.fill: parent
                 verticalAlignment: Text.AlignVCenter
                 elide: Text.ElideRight
-                text: "↑↓ or Ctrl+n/p move  ·  Enter launch  ·  PgUp/PgDn page  ·  Esc close"
+                text: win.mode === "search"
+                    ? "type to filter  ·  ↑↓ or Ctrl+n/p move  ·  Enter launch  ·  Esc cancel search"
+                    : "j/k move  ·  g/G ends  ·  / search  ·  Enter launch  ·  Esc close"
                 font.pixelSize: Theme.s(12)
                 color: Theme.dim
             }
