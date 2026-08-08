@@ -55,6 +55,16 @@ PanelWindow {
     function flash(m) { win.flashMsg = m; flashTimer.restart() }
     Timer { id: flashTimer; interval: 1800; onTriggered: win.flashMsg = "" }
 
+    // Hold the panel open briefly after a yank so the confirmation is
+    // actually readable, instead of the window vanishing the same frame.
+    Timer { id: closeTimer; interval: 1000; onTriggered: win.close() }
+
+    function flashThenClose(m) {
+        win.flashMsg = m
+        flashTimer.stop()      // let the close, not the flash timeout, end it
+        closeTimer.restart()
+    }
+
     // ---- modes ----
     function enterList() {
         win.mode = "list"
@@ -146,7 +156,7 @@ PanelWindow {
         if (!e) return
         copyProc.command = ["sh", "-c", win.decodeCmd(e.id) + " | wl-copy"]
         copyProc.running = true
-        win.close()
+        win.flashThenClose(e.image ? "yanked image" : "yanked entry")
     }
 
     // Yank of a vim selection. Goes through Quickshell.clipboardText rather
@@ -155,7 +165,9 @@ PanelWindow {
     function yankFragment(content) {
         if (!content || content.length === 0) { win.flash("nothing selected"); return }
         Quickshell.clipboardText = content
-        win.close()
+        var lines = content.split("\n").length
+        win.flashThenClose("yanked " + content.length + " chars"
+                           + (lines > 1 ? " · " + lines + " lines" : ""))
     }
 
     function deleteCurrent() {
@@ -246,11 +258,13 @@ PanelWindow {
     }
 
     function close() {
+        closeTimer.stop()      // Esc during the post-yank pause closes now
         win.visible = false
         win.filterText = ""
         query.text = ""
         win.confirmDelete = false
         win.confirmWipe = false
+        win.flashMsg = ""
         win.mode = "list"
     }
 
