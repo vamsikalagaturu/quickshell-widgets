@@ -23,8 +23,11 @@ PanelWindow {
     aboveWindows: true
     focusable: true
 
-    implicitWidth: Theme.s(680)
-    implicitHeight: Theme.s(560)
+    implicitWidth: Theme.s(940)
+    implicitHeight: Theme.s(580)
+
+    // list / preview split
+    readonly property real listFrac: 0.44
 
     property var entries: []      // [{id, preview, image}]
     property var filtered: []
@@ -132,27 +135,57 @@ PanelWindow {
         onExited: { win.flash("history cleared"); win.reload() }
     }
 
-    // ---- image preview: decode the selected image to a temp file. Only the
-    // selected one, and only when it's actually an image. ----
+    // ---- preview of the selected entry. Images decode to a temp file and
+    // render as a thumbnail; text decodes to stdout so the pane can show the
+    // FULL content, not just the one-line summary cliphist puts in `list`. ----
     property string previewPath: ""
+    property string previewText: ""
+    property bool previewTruncated: false
+
+    // Debounced: holding j/k would otherwise spawn a decode per row.
+    Timer {
+        id: previewDebounce
+        interval: 110
+        onTriggered: win.refreshPreview()
+    }
 
     function refreshPreview() {
         var e = win.current
-        if (!e || !e.image) { win.previewPath = ""; return }
-        var p = "/tmp/qs-clip-preview-" + e.id
-        previewProc.command = ["sh", "-c", win.decodeCmd(e.id) + " > " + p]
-        previewProc.pendingPath = p
-        previewProc.running = true
+        win.previewPath = ""
+        win.previewText = ""
+        win.previewTruncated = false
+        if (!e) return
+        if (e.image) {
+            var p = "/tmp/qs-clip-preview-" + e.id
+            imgProc.command = ["sh", "-c", win.decodeCmd(e.id) + " > " + p]
+            imgProc.pendingPath = p
+            imgProc.running = true
+        } else {
+            // cap it -- a clipboard entry can be megabytes and the pane only
+            // ever shows a screenful
+            txtProc.command = ["sh", "-c", win.decodeCmd(e.id) + " | head -c 20000"]
+            txtProc.running = true
+        }
     }
 
     Process {
-        id: previewProc
+        id: imgProc
         property string pendingPath: ""
         onExited: code => { win.previewPath = code === 0 ? pendingPath : "" }
     }
 
-    onSelectionChanged: Qt.callLater(refreshPreview)
-    onFilteredChanged: Qt.callLater(refreshPreview)
+    Process {
+        id: txtProc
+        stdout: StdioCollector { id: txtOut }
+        onExited: code => {
+            if (code !== 0) { win.previewText = ""; return }
+            win.previewText = txtOut.text
+            win.previewTruncated = txtOut.text.length >= 20000
+        }
+    }
+
+    onSelectionChanged: previewDebounce.restart()
+    onFilteredChanged: previewDebounce.restart()
 
     function open() {
         win.visible = true
@@ -257,36 +290,13 @@ PanelWindow {
             }
         }
 
-        // ---- image preview for the selected entry ----
-        Rectangle {
-            id: preview
-            visible: win.previewPath !== "" && !!win.current && win.current.image
-            anchors.top: searchBox.bottom; anchors.topMargin: Theme.s(10)
-            anchors.left: parent.left; anchors.leftMargin: Theme.s(16)
-            anchors.right: parent.right; anchors.rightMargin: Theme.s(16)
-            height: visible ? Theme.s(140) : 0
-            radius: Theme.s(10)
-            color: Theme.surface
-            clip: true
-
-            Image {
-                anchors.fill: parent
-                anchors.margins: Theme.s(8)
-                source: win.previewPath !== "" ? "file://" + win.previewPath : ""
-                fillMode: Image.PreserveAspectFit
-                asynchronous: true
-                cache: false
-            }
-        }
-
-        // ---- history list ----
+        // ---- history list (left pane) ----
         ListView {
             id: list
-            anchors.top: preview.visible ? preview.bottom : searchBox.bottom
-            anchors.topMargin: Theme.s(10)
+            anchors.top: searchBox.bottom; anchors.topMargin: Theme.s(10)
             anchors.left: parent.left; anchors.leftMargin: Theme.s(16)
-            anchors.right: parent.right; anchors.rightMargin: Theme.s(26)
             anchors.bottom: hintSep.top; anchors.bottomMargin: Theme.s(8)
+            width: (parent.width - Theme.s(16) * 2 - Theme.s(10)) * win.listFrac - Theme.s(10)
             model: win.filtered
             currentIndex: win.selection
             clip: true
@@ -346,7 +356,7 @@ PanelWindow {
 
         ScrollTrack {
             flick: list
-            anchors.right: parent.right; anchors.rightMargin: Theme.s(16)
+            anchors.left: list.right; anchors.leftMargin: Theme.s(4)
             anchors.top: list.top
             anchors.bottom: list.bottom
         }
@@ -354,11 +364,87 @@ PanelWindow {
         Text {
             visible: win.filtered.length === 0
             anchors.centerIn: list
+            width: list.width
+            horizontalAlignment: Text.AlignHCenter
+            wrapMode: Text.WordWrap
             text: win.entries.length === 0
                 ? "clipboard history is empty"
                 : "no matches for “" + query.text.trim() + "”"
             font.pixelSize: Theme.s(12)
             color: Theme.muted
+        }
+
+        // ---- preview (right pane), full height so images get real room ----
+        Rectangle {
+            id: preview
+            anchors.top: list.top
+            anchors.bottom: list.bottom
+            anchors.left: list.right; anchors.leftMargin: Theme.s(18)
+            anchors.right: parent.right; anchors.rightMargin: Theme.s(16)
+            radius: Theme.s(10)
+            color: Theme.surface
+            clip: true
+
+            // image entries
+            Image {
+                id: previewImage
+                visible: win.previewPath !== ""
+                anchors.fill: parent
+                anchors.margins: Theme.s(10)
+                anchors.bottomMargin: Theme.s(28)
+                source: win.previewPath !== "" ? "file://" + win.previewPath : ""
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
+                cache: false
+            }
+
+            Text {
+                visible: previewImage.visible && previewImage.status === Image.Ready
+                anchors.bottom: parent.bottom; anchors.bottomMargin: Theme.s(8)
+                anchors.horizontalCenter: parent.horizontalCenter
+                text: previewImage.sourceSize.width + " × " + previewImage.sourceSize.height
+                font.family: Theme.mono
+                font.pixelSize: Theme.s(10)
+                color: Theme.muted
+            }
+
+            // text entries -- full content, scrollable
+            Flickable {
+                id: textFlick
+                visible: win.previewText !== ""
+                anchors.fill: parent
+                anchors.margins: Theme.s(12)
+                contentWidth: width
+                contentHeight: previewLabel.implicitHeight
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+
+                Text {
+                    id: previewLabel
+                    width: textFlick.width
+                    text: win.previewText + (win.previewTruncated ? "\n\n… truncated" : "")
+                    wrapMode: Text.Wrap
+                    font.family: Theme.mono
+                    font.pixelSize: Theme.s(11)
+                    color: Theme.dim
+                }
+            }
+
+            ScrollTrack {
+                flick: textFlick
+                visible: textFlick.visible && needed
+                anchors.right: parent.right; anchors.rightMargin: Theme.s(4)
+                anchors.top: parent.top; anchors.topMargin: Theme.s(10)
+                anchors.bottom: parent.bottom; anchors.bottomMargin: Theme.s(10)
+            }
+
+            Text {
+                visible: win.previewText === "" && win.previewPath === ""
+                anchors.centerIn: parent
+                text: win.current ? "loading…" : "nothing selected"
+                font.pixelSize: Theme.s(12)
+                color: Theme.muted
+            }
         }
 
         // ---- footnote ----
