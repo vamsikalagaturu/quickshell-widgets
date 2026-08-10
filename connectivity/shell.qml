@@ -31,11 +31,18 @@ PanelWindow {
     id: win
     visible: false
     color: "transparent"
-    anchors.top: true
-    anchors.left: true
-    margins.top: Math.max(0, (win.screen.height - implicitHeight) / 2)
-    margins.left: Math.max(0, (win.screen.width - implicitWidth) / 2)
-    exclusionMode: ExclusionMode.Ignore
+    // ponytail: no anchors on purpose. wlr-layer-shell centres a surface on
+    // whichever axis it isn't anchored to, on the focused output, and it does
+    // that in logical pixels -- so fractional scale and rotation come out
+    // right for free. Computing margins by hand got both wrong: Hyprland's
+    // monitor width/height are raw physical pixels, and Hyprland.focusedMonitor
+    // is null until the monitor list has been populated over IPC, so it fell
+    // back to win.screen (the laptop) nearly every time.
+    // Normal (not Ignore) with no anchors => exclusive zone 0: the surface
+    // reserves nothing itself but is centred in the area left over by bars
+    // that do. Ignore (-1) centres on the raw output, which sits the panel
+    // half of waybar's height too low.
+    exclusionMode: ExclusionMode.Normal
     aboveWindows: true
     focusable: true
 
@@ -491,6 +498,12 @@ PanelWindow {
             }
         }
     }
+
+    // Esc closes from any mode. The per-mode Esc handlers (collapse expansion,
+    // clear filter, cancel a confirm, leave a Field) still exist, but they no
+    // longer eat the keypress -- a Shortcut is matched during shortcut
+    // override, before the focused item's Keys handler sees the event.
+    Shortcut { sequence: "Esc"; onActivated: win.visible = false }
 
     GlobalShortcut {
         appid: "quickshell"
