@@ -2,6 +2,8 @@
 
 A small Hyprland/Quickshell widget showing live usage for **Codex** (weekly) and **Claude Code** (5-hour + weekly) as progress bars with reset times, plus a **Quickshell app launcher** that replaces walker. Widget shows on startup for 5s, then hides; toggle with **SUPER + ;**. Launcher opens with **SUPER + D**.
 
+This repo also has standalone widgets in their own subdirectories, each with its own `qmldir`/`shell.qml`, launched separately via `quickshell-intel -p ~/.config/quickshell/<name>` in `hypr/startup.conf`: `connectivity`, `launcher`, `clipboard`, `powermenu`, `github`.
+
 ## Dependencies
 
 - [Quickshell](https://quickshell.org) 0.3.0+ (Wayland shell framework)
@@ -68,3 +70,27 @@ Reload: `hyprctl reload`. Verify registration: `hyprctl globalshortcuts`.
 ## Notes
 
 - Data is fetched on startup and every time you toggle the widget (**SUPER + ;**); `--fresh` bypasses the Codex 5-min cache in `~/.cache/codex_usage.json`.
+
+## `github/` — GitHub dashboard
+
+Unread notifications, review requests, your open pull requests (with check state), assigned issues, a repository list (owned + org membership), and your starred repositories. Toggle with **SUPER + G**.
+
+`j`/`k` move a cursor across every row (sections, repos, starred, and each section's footer buttons), `Enter` opens/activates the selected one, `m` marks the selected notification read, `M` arms then confirms "mark all read", `/` focuses the always-visible bottom search bar (matches issues/PRs/repos/starred by title or `owner/repo`), `,` or the Settings button opens org-exclusion settings (`Tab` focuses it, `Enter` activates), `r` refreshes, `Esc` closes (or backs out of settings first).
+
+Reopening within 60s of the last successful load shows what's already cached instead of refetching. Actions scanning is off by default (it's the majority of a fetch's cost); repositories are ordered by most recently updated with no user-facing sort. Excluded orgs (Settings) persist to `~/.config/quickshell/github-excluded-orgs.json`, alongside connectivity's `network.json`.
+
+Dependencies: [`gh`](https://cli.github.com/) (authenticated — `gh auth login`, plus `gh auth refresh -h github.com -s notifications -s repo` for notifications/private repos) and `jq`.
+
+Autostart + keybind, same pattern as the other widgets:
+
+```
+# hypr/startup.conf
+exec-once = $HOME/.local/bin/quickshell-intel -p $HOME/.config/quickshell/github
+
+# hypr/keybinds.conf
+bindd = $mainMod, G, toggle github widget, global, quickshell:toggle-github
+```
+
+### Attribution
+
+`Service.qml` and `github-fetch` are ported near-verbatim from [robzolkos/omarchy-github](https://github.com/robzolkos/omarchy-github) (MIT License, Copyright (c) 2026 Rob Zolkos) — a plugin for [Omarchy Quattro](https://github.com/basecamp/omarchy)'s Quickshell bar. That data layer had no Omarchy-specific coupling to begin with. `shell.qml` (the UI) is a fresh implementation against this repo's own `PanelWindow`/`Theme` conventions rather than Omarchy's `qs.Commons`/`qs.Ui` component library, which this repo doesn't have — it ports the original panel's feature set, cursor/filter/sort logic, and mark-as-read flow.
