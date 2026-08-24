@@ -51,7 +51,8 @@ PanelWindow {
         { kind: "action", label: "Shutdown", icon: "\uf011", cmd: ["systemctl", "poweroff"] },
         { kind: "action", label: "Logout", icon: "\uf2f5", cmd: ["hyprctl", "dispatch", "exit", "0"] },
         { kind: "toggle", id: "lid", label: "Stay awake (lid closed)", icon: "\uf108" },
-        { kind: "toggle", id: "idle", label: "Keep screen on (no idle lock)", icon: "\uf0eb" }
+        { kind: "toggle", id: "idle", label: "Keep screen on (no idle lock)", icon: "\uf0eb" },
+        { kind: "profile", label: "Power profile", icon: "\uf0e7" }
     ]
 
     readonly property var filtered: {
@@ -127,10 +128,23 @@ PanelWindow {
         return it.id === "lid" ? win.lidAwake : win.idleAwake
     }
 
+    // One row that cycles rather than three that mostly sit unused. Machines
+    // without a performance profile (ppd reports hasPerformanceProfile=false)
+    // cycle the two they do have instead of landing on a dead value.
+    readonly property var profileOrder: PowerProfiles.hasPerformanceProfile
+        ? [PowerProfile.PowerSaver, PowerProfile.Balanced, PowerProfile.Performance]
+        : [PowerProfile.PowerSaver, PowerProfile.Balanced]
+
+    function cycleProfile() {
+        var i = win.profileOrder.indexOf(PowerProfiles.profile)
+        PowerProfiles.profile = win.profileOrder[(i + 1) % win.profileOrder.length]
+    }
+
     function activate() {
         var it = filtered[win.selection]
         if (!it) return
         if (it.kind === "toggle") { win.toggleAt(it); return }
+        if (it.kind === "profile") { win.cycleProfile(); return }
         actionProc.command = it.cmd
         actionProc.running = true
         win.close()
@@ -348,6 +362,20 @@ PanelWindow {
                             font.pixelSize: Theme.s(13)
                             color: index === win.selection ? Theme.text : Theme.dim
                         }
+                    }
+
+                    Text {
+                        visible: modelData.kind === "profile"
+                        anchors.right: parent.right; anchors.rightMargin: Theme.s(14)
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: PowerProfile.toString(PowerProfiles.profile)
+                             + (PowerProfiles.degradationReason !== PerformanceDegradationReason.None
+                                ? "  (throttled)" : "")
+                        font.family: Theme.mono
+                        font.pixelSize: Theme.s(11)
+                        color: PowerProfiles.profile === PowerProfile.Performance ? Theme.warn
+                             : PowerProfiles.profile === PowerProfile.PowerSaver ? Theme.accent
+                             : Theme.dim
                     }
 
                     Toggle {
