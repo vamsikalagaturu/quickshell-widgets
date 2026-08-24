@@ -499,11 +499,13 @@ PanelWindow {
         }
     }
 
-    // Esc closes from any mode. The per-mode Esc handlers (collapse expansion,
-    // clear filter, cancel a confirm, leave a Field) still exist, but they no
-    // longer eat the keypress -- a Shortcut is matched during shortcut
-    // override, before the focused item's Keys handler sees the event.
-    Shortcut { sequence: "Esc"; onActivated: win.visible = false }
+    // Esc closes from any mode -- EXCEPT while a Field is being edited, where
+    // it backs out of that field first (Field.onCancelled -> exitInsert), and
+    // a second Esc then closes. Without the guard this Shortcut swallowed the
+    // keypress (shortcuts match during shortcut override, before the focused
+    // item's Keys handler), so cancelling a password prompt or a filter took
+    // the whole panel down with it.
+    Shortcut { sequence: "Esc"; enabled: !win.insert; onActivated: win.visible = false }
 
     GlobalShortcut {
         appid: "quickshell"

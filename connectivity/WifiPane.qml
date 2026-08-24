@@ -212,6 +212,14 @@ Item {
         return n.security !== WifiSecurityType.Open && !n.known
     }
 
+    function promptPsk(n) {
+        pwdField.text = ""
+        pane.pwdMode = true
+        pane.pwdNetwork = n
+        shellRoot.insert = true
+        Qt.callLater(() => pwdField.beginInsert())
+    }
+
     function activate() {
         var r = pane.currentRing
         if (!r) return
@@ -219,15 +227,8 @@ Item {
         if (r.kind === "network") {
             var n = r.net
             if (n.connected) { n.disconnect(); return }
-            if (needsPsk(n)) {
-                pwdField.text = ""
-                pane.pwdMode = true
-                pane.pwdNetwork = n
-                shellRoot.insert = true
-                Qt.callLater(() => pwdField.beginInsert())
-            } else {
-                n.connect()
-            }
+            if (needsPsk(n)) promptPsk(n)
+            else n.connect()
             return
         }
         if (r.kind === "field") { if (pane.expandedBlock) pane.expandedBlock.activateAt(r.localIdx); return }
@@ -320,7 +321,7 @@ Item {
         anchors.right: parent.right
         anchors.top: parent.top
         anchors.rightMargin: Theme.s(10)   // room for the scroll track
-        anchors.bottom: speedSection.top
+        anchors.bottom: pane.pwdMode ? pwdField.top : speedSection.top
         anchors.bottomMargin: Theme.s(10)
         contentWidth: width
         contentHeight: mainCol.implicitHeight
@@ -484,6 +485,12 @@ Item {
                                 target: netDelegate.modelData
                                 function onConnectionFailed(reason) {
                                     shellRoot.flash("failed: " + ConnectionFailReason.toString(reason))
+                                    // NM rejected the stored secret (or has
+                                    // none): re-prompt instead of dead-ending
+                                    // on a flash message the user can't act on.
+                                    if (reason === ConnectionFailReason.NoSecrets
+                                        || reason === ConnectionFailReason.WifiAuthTimeout)
+                                        pane.promptPsk(netDelegate.modelData)
                                 }
                             }
 
@@ -570,18 +577,25 @@ Item {
                     color: Theme.muted
                 }
             }
-
-            Field {
-                id: pwdField
-                visible: pane.pwdMode
-                width: parent.width
-                label: "password for " + (pane.pwdNetwork ? pane.pwdNetwork.name : "")
-                password: true
-                placeholder: "psk"
-                onAccepted: pane.submitPsk()
-                onCancelled: pane.cancelPsk()
-            }
         }
+    }
+
+    // Pinned OUTSIDE the Flickable. It used to be the last item in the
+    // scrolling column, so with more than a screenful of networks it opened
+    // below the fold and nothing scrolled to it -- pressing Enter on a
+    // secured network looked like it did nothing at all.
+    Field {
+        id: pwdField
+        visible: pane.pwdMode
+        anchors.left: parent.left
+        anchors.bottom: speedSection.top
+        anchors.bottomMargin: Theme.s(10)
+        width: pane.width - Theme.s(10)   // match the Flickable's track inset
+        label: "password for " + (pane.pwdNetwork ? pane.pwdNetwork.name : "")
+        password: true
+        placeholder: "psk"
+        onAccepted: pane.submitPsk()
+        onCancelled: pane.cancelPsk()
     }
 
     ScrollTrack {
