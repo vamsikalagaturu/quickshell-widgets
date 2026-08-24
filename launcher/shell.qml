@@ -8,12 +8,11 @@ import Quickshell.Hyprland._FocusGrab
 // App launcher, styled to match the network panel (connectivity/) and using
 // the same modal keyboard model as the clipboard picker.
 //
-//   list    (default)  j/k move, g/G ends, Enter launch, / search, Esc close
-//   search  ('/')      typing filters, Esc cancels, Enter launches,
-//                      arrows / Ctrl+N/P still move the selection
-//
-// Single-letter bindings are safe because the TextInput only holds focus
-// while mode === "search"; panelBg owns keys otherwise.
+// The search box holds focus the whole time the launcher is open, so typing
+// filters immediately -- there is no mode to enter first. That rules out
+// single-letter j/k/g/G bindings (they would just type): move with the
+// arrows or Ctrl+N/P, page with PageUp/PageDown, Enter launches, and Esc
+// clears a filter and then closes.
 PanelWindow {
     id: win
     visible: false
@@ -41,20 +40,7 @@ PanelWindow {
     property int selection: 0
     property string filterText: ""
 
-    // "list" | "search"
-    property string mode: "list"
-
     readonly property int rowHeight: Theme.s(46)
-
-    function enterList() {
-        win.mode = "list"
-        panelBg.forceActiveFocus()
-    }
-
-    function enterSearch() {
-        win.mode = "search"
-        query.forceActiveFocus()
-    }
 
     function matches(a, q) {
         if (a.noDisplay) return false
@@ -98,25 +84,18 @@ PanelWindow {
         list.positionViewAtIndex(selection, ListView.Contain)
     }
 
-    function jump(toLast) {
-        if (filtered.length === 0) return
-        selection = toLast ? filtered.length - 1 : 0
-        list.positionViewAtIndex(selection, ListView.Contain)
-    }
-
     function open() {
         win.visible = true
         win.filterText = ""
         query.text = ""
         updateFilter()
-        win.enterList()
+        query.forceActiveFocus()
     }
 
     function closeLauncher() {
         win.visible = false
         win.filterText = ""
         query.text = ""
-        win.mode = "list"
     }
 
     function launchCurrent() {
@@ -135,19 +114,15 @@ PanelWindow {
         border.color: "#1e2228"
         focus: true
 
-        // ---- list-mode key router ----
+        // Fallback only -- `query` owns the keyboard while the launcher is open.
         Keys.onPressed: event => {
-            var txt = event.text
             var k = event.key
 
             if (k === Qt.Key_Escape) { win.closeLauncher(); event.accepted = true }
-            else if (txt === "j" || k === Qt.Key_Down) { win.move(1); event.accepted = true }
-            else if (txt === "k" || k === Qt.Key_Up) { win.move(-1); event.accepted = true }
-            else if (txt === "g") { win.jump(false); event.accepted = true }
-            else if (txt === "G") { win.jump(true); event.accepted = true }
+            else if (k === Qt.Key_Down) { win.move(1); event.accepted = true }
+            else if (k === Qt.Key_Up) { win.move(-1); event.accepted = true }
             else if (k === Qt.Key_PageDown) { win.move(8); event.accepted = true }
             else if (k === Qt.Key_PageUp) { win.move(-8); event.accepted = true }
-            else if (txt === "/") { win.enterSearch(); event.accepted = true }
             else if (k === Qt.Key_Return || k === Qt.Key_Enter) {
                 win.launchCurrent(); event.accepted = true
             }
@@ -162,15 +137,15 @@ PanelWindow {
             height: Theme.s(44)
             radius: Theme.s(10)
             color: Theme.surfaceAlt
-            border.width: win.mode === "search" ? 1 : 0
-            border.color: Theme.accent
+            border.width: 1
+            border.color: query.activeFocus ? Theme.accent : Theme.line
 
             Text {
                 anchors.left: parent.left
                 anchors.leftMargin: Theme.s(14)
                 anchors.verticalCenter: parent.verticalCenter
                 visible: win.filterText.length === 0
-                text: win.mode === "search" ? "type to filter…" : "press / to search apps"
+                text: "type to search apps…"
                 font.pixelSize: Theme.s(14)
                 color: Theme.muted
             }
@@ -192,11 +167,13 @@ PanelWindow {
                 Keys.onPressed: event => {
                     var ctrl = (event.modifiers & Qt.ControlModifier) !== 0
                     if (event.key === Qt.Key_Escape) {
-                        // cancel the search, back to list mode -- Esc again closes
-                        query.text = ""
-                        win.filterText = ""
-                        win.updateFilter()
-                        win.enterList()
+                        // clear a filter first, close on the second press
+                        if (win.filterText !== "") {
+                            query.text = ""
+                            win.updateFilter()
+                        } else {
+                            win.closeLauncher()
+                        }
                         event.accepted = true
                     } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
                         // launch straight from search; the clipboard picker
@@ -349,9 +326,8 @@ PanelWindow {
                 anchors.fill: parent
                 verticalAlignment: Text.AlignVCenter
                 elide: Text.ElideRight
-                text: win.mode === "search"
-                    ? "type to filter  ·  ↑↓ or Ctrl+n/p move  ·  Enter launch  ·  Esc cancel search"
-                    : "j/k move  ·  g/G ends  ·  / search  ·  Enter launch  ·  Esc close"
+                text: "type to search  ·  ↑↓ or Ctrl+n/p move  ·  Enter launch  ·  Esc "
+                      + (win.filterText === "" ? "close" : "clear")
                 font.pixelSize: Theme.s(12)
                 color: Theme.dim
             }
