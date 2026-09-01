@@ -2,7 +2,7 @@
 
 A small Hyprland/Quickshell widget showing live usage for **Codex** (weekly) and **Claude Code** (5-hour + weekly) as progress bars with reset times, plus a **Quickshell app launcher** that replaces walker. Widget shows on startup for 5s, then hides; toggle with **SUPER + ;**. Launcher opens with **SUPER + D**.
 
-This repo also has standalone widgets in their own subdirectories, each with its own `qmldir`/`shell.qml`, launched separately via `quickshell-intel -p ~/.config/quickshell/<name>` in `hypr/startup.conf`: `connectivity`, `launcher`, `clipboard`, `powermenu`, `github`.
+This repo also has standalone widgets in their own subdirectories, each with its own `qmldir`/`shell.qml`, launched separately via `quickshell-intel -p ~/.config/quickshell/<name>` in `hypr/startup.conf`: `connectivity`, `launcher`, `clipboard`, `powermenu`, `github`, `ports`.
 
 ## Dependencies
 
@@ -94,3 +94,60 @@ bindd = $mainMod, G, toggle github widget, global, quickshell:toggle-github
 ### Attribution
 
 `Service.qml` and `github-fetch` are ported near-verbatim from [robzolkos/omarchy-github](https://github.com/robzolkos/omarchy-github) (MIT License, Copyright (c) 2026 Rob Zolkos) — a plugin for [Omarchy Quattro](https://github.com/basecamp/omarchy)'s Quickshell bar. That data layer had no Omarchy-specific coupling to begin with. `shell.qml` (the UI) is a fresh implementation against this repo's own `PanelWindow`/`Theme` conventions rather than Omarchy's `qs.Commons`/`qs.Ui` component library, which this repo doesn't have — it ports the original panel's feature set, cursor/filter/sort logic, and mark-as-read flow.
+
+## `ports/` — dev servers
+
+Every TCP socket you have in `LISTEN` state, one row per **process** rather than
+per port, labelled with the git project it was started in. Toggle with **SUPER + P**.
+
+`j`/`k` or the arrows move the cursor, `Enter` opens a row that speaks HTTP (or
+copies the URL of one that doesn't), `o` opens, `c` copies `http://localhost:PORT`,
+`x` stops, `r` rescans, `Esc` closes.
+
+Only sockets whose owning process the kernel reveals are listed, which is exactly
+your own processes — the DNS resolver and the print spooler never show up. A Godot
+editor holding two ports is one row; a pre-forking server's master and workers are
+one row marked `+ workers`. A row bound past loopback is marked `exposed`.
+
+The globe glyph appears only on rows that answered an HTTP `HEAD`, so a database or
+debug port never sends you to a browser tab that spins forever. Each socket is asked
+once, when it first appears, and the answer is dropped when that socket goes away.
+
+Stopping is two separate decisions, and neither signal is aimed at a remembered pid.
+Confirming sends `SIGTERM` via `ports-stop`, which first re-derives the pid, the
+start time in `/proc/<pid>/stat` that a recycled pid cannot match, and the sockets
+the row was built from — and refuses, saying why, if any of it moved. If the server
+is still listening five seconds later the panel reopens to ask a second, separate
+question before anything sends `SIGKILL`. Nothing escalates on its own.
+
+The panel scans every 2s while open and every 30s while closed; the slow scan is
+what keeps the five-second `SIGKILL` check honest if you closed the panel after
+confirming a stop.
+
+Dependencies: `ss` (iproute2), `jq`, `curl`, `wl-copy`, `xdg-open`.
+
+Autostart + keybind, same pattern as the other widgets:
+
+```
+# hypr/startup.conf
+exec-once = $HOME/.local/bin/quickshell-intel -p $HOME/.config/quickshell/ports
+
+# hypr/keybinds.conf
+bindd = $mainMod, P, toggle dev servers panel, global, quickshell:toggle-ports
+```
+
+### Attribution
+
+The idea, `ports-scan`, `ports-stop` and `Scanner.qml` come from
+[rubenmeza/omarchy-ports](https://github.com/rubenmeza/omarchy-ports) (MIT License,
+Copyright (c) 2026 Ruben Meza) — a plugin for [Omarchy
+Quattro](https://github.com/basecamp/omarchy)'s Quickshell bar. The two bash helpers
+are vendored unmodified apart from an attribution header: they are plain `ss`/`/proc`
+scripts with no Omarchy coupling, and the pid-identity check in `ports-stop` is the
+most careful part of the original. `Scanner.qml` is a light port — the plugin
+settings object became plain properties, the helper paths point here, and
+`omarchy-launch-browser` became `xdg-open`, which is what the other widgets in this
+repo open URLs with. `shell.qml` (the UI) is a fresh implementation against this
+repo's own `PanelWindow`/`Theme` conventions rather than Omarchy's `qs.Commons`/`qs.Ui`
+component library, which this repo doesn't have — it carries over the original
+panel's cursor model, the browsable/exposed distinctions and the two-step stop flow.

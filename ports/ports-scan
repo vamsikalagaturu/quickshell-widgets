@@ -1,0 +1,220 @@
+#!/bin/bash
+
+# Vendored from rubenmeza/omarchy-ports (MIT License, Copyright (c) 2026
+# Ruben Meza) -- https://github.com/rubenmeza/omarchy-ports
+#
+# Unmodified apart from this header: the script is plain bash over ss(8) and
+# /proc, with no Omarchy coupling to remove.
+
+# omarchy-ports: list this user's listening TCP dev servers as JSON.
+#
+# One dev server is one process, not one socket: a Godot editor holding :6005
+# and :6006, or a Vite server bound to both address families, is a single row.
+# Only sockets whose owning process the kernel reveals are listed, which is
+# exactly the current user's own processes — system services never appear.
+#
+# Output: a JSON array, sorted by first port.
+#   [{ "pid": 19425, "startTime": 84210, "comm": "godot", "ports": [6005, 6006],
+#      "sockets": [{ "port": 6005, "address": "127.0.0.1", "probeHost": "127.0.0.1" }, …],
+#      "exposed": false, "shared": false, "cwd": "/home/you/Dev/game",
+#      "project": "game", "cwdDeleted": false }]
+#
+# `pid` alone names nothing durable: pids are recycled. `startTime` — field 22
+# of /proc/<pid>/stat, the boot-relative tick the process began at — pins the
+# pid to one process, and bin/ports-stop refuses to signal without both.
+
+set -uo pipefail
+
+fail() {
+  echo "ports-scan: $*" >&2
+  exit 1
+}
+
+if [[ ${1:-} == -h || ${1:-} == --help ]]; then
+  cat <<'USAGE'
+Usage: ports-scan
+
+Prints one JSON array describing every TCP socket in LISTEN state owned by the
+current user, grouped by process. No arguments, no side effects.
+USAGE
+  exit 0
+fi
+
+[[ $# -eq 0 ]] || fail "unexpected argument: $1"
+
+command -v ss >/dev/null || fail "ss not found (install iproute2)"
+command -v jq >/dev/null || fail "jq not found"
+
+# Field 22 of /proc/<pid>/stat: the tick the process started at. Everything
+# before it can contain spaces and parentheses, because comm is unsanitised, so
+# the fields are counted from the last ")" rather than from the left.
+start_time_of() {
+  local line rest fields
+  # Braces around the read, not just `2>/dev/null` on it: a redirect that cannot
+  # open its file is reported before the redirect of stderr has been applied, so
+  # an unbraced read prints "No such file" for a process that has just exited —
+  # straight into the widget's error banner.
+  { read -r line < "/proc/$1/stat"; } 2>/dev/null || return 1
+  [[ -n $line ]] || return 1
+  rest="${line##*) }"
+  read -r -a fields <<<"$rest"
+  [[ ${fields[19]:-} =~ ^[0-9]+$ ]] || return 1
+  printf '%s' "${fields[19]}"
+}
+
+# The repository a directory belongs to, so a server started in a monorepo
+# package is labelled with the repo everyone calls it by rather than the
+# package folder it happens to live in. Plain directory tests only — no git
+# subprocess per row.
+git_root() {
+  local dir="$1"
+  while [[ -n $dir && $dir != "/" ]]; do
+    [[ -e "$dir/.git" ]] && { printf '%s' "$dir"; return 0; }
+    dir="${dir%/*}"
+  done
+  return 1
+}
+
+# Where to ask a port whether it speaks HTTP. A wildcard bind answers on
+# loopback, so prefer loopback in both families and only fall back to the
+# literal address for a server bound to one interface.
+probe_host_for() {
+  case "$1" in
+    "0.0.0.0" | "*" | "127."*) printf '127.0.0.1' ;;
+    "[::]" | "[::1]") printf '[::1]' ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+declare -A pids_of_port=()   # port -> space separated pids
+declare -A address_of_port=() # port -> first bind address seen
+declare -A exposed_port=()   # port -> 1 when bound beyond loopback
+
+while IFS= read -r line; do
+  [[ $line == *users:* ]] || continue
+
+  # ss columns: State Recv-Q Send-Q Local:Port Peer:Port users:((...))
+  read -r _state _recvq _sendq local _rest <<<"$line"
+  port="${local##*:}"
+  [[ $port =~ ^[0-9]+$ ]] || continue
+  address="${local%:*}"
+
+  case "$address" in
+    "127."* | "[::1]" | "localhost") ;;
+    *) exposed_port[$port]=1 ;;
+  esac
+
+  # Prefer a loopback address as the one to remember: a server listening on
+  # both a LAN address and loopback is still reachable at localhost.
+  case "${address_of_port[$port]:-}" in
+    "" ) address_of_port[$port]="$address" ;;
+    "127."* | "[::1]" ) ;;
+    * ) [[ $address == "127."* || $address == "[::1]" ]] && address_of_port[$port]="$address" ;;
+  esac
+
+  users="${line#*users:}"
+  while IFS= read -r pid; do
+    [[ -n $pid ]] || continue
+    [[ -d "/proc/$pid" ]] || continue
+    pids_of_port[$port]="${pids_of_port[$port]:-} $pid"
+  done < <(grep -o 'pid=[0-9]*' <<<"$users" | cut -d= -f2)
+done < <(ss -tlnpH 2>/dev/null)
+
+if (( ${#pids_of_port[@]} == 0 )); then
+  echo "[]"
+  exit 0
+fi
+
+# A pre-forking server shares one listening socket across a master and its
+# workers, and ss names every one of them. That is one dev server, not five,
+# so each port is attributed to the lowest pid holding it — the master, which
+# is also the process worth signalling.
+declare -A ports_of=()
+declare -A shared_pid=()
+
+for port in "${!pids_of_port[@]}"; do
+  owner=$(tr ' ' '\n' <<<"${pids_of_port[$port]}" | grep -v '^$' | sort -n | head -1)
+  [[ -n $owner ]] || continue
+  count=$(tr ' ' '\n' <<<"${pids_of_port[$port]}" | grep -cv '^$')
+  (( count > 1 )) && shared_pid[$owner]=1
+  ports_of[$owner]="${ports_of[$owner]:-} $port"
+done
+
+emit_rows() {
+  local pid ports comm cwd project sockets exposed gone shared start_time
+  for pid in "${!ports_of[@]}"; do
+    # Unique, numerically sorted, so :3000 reads before :8080 and a dual-stack
+    # socket counts once.
+    ports=$(tr ' ' '\n' <<<"${ports_of[$pid]}" | grep -v '^$' | sort -un | paste -sd,)
+    [[ -n $ports ]] || continue
+
+    sockets=""
+    exposed=0
+    local port address
+    while IFS= read -r port; do
+      [[ -n $port ]] || continue
+      address="${address_of_port[$port]:-127.0.0.1}"
+      [[ -n ${exposed_port[$port]:-} ]] && exposed=1
+      sockets+="${sockets:+ }$port|$address|$(probe_host_for "$address")"
+    done < <(tr ',' '\n' <<<"$ports")
+
+    # A process that exited between ss and here leaves no start time. Zero is
+    # the value nothing matches, so such a row can be shown but never signalled.
+    start_time=$(start_time_of "$pid") || start_time=0
+
+    # `read` rather than $(< file): bash's read-file substitution returns
+    # nothing for the zero-sized entries procfs reports.
+    comm=""
+    { read -r comm < "/proc/$pid/comm"; } 2>/dev/null
+    comm="${comm//[$'\t\n']/ }"
+    [[ -n $comm ]] || comm="pid $pid"
+
+    # The kernel appends " (deleted)" once the directory a process was started
+    # in is gone — a re-cloned checkout, a cleaned build dir. The path is still
+    # the most useful thing to show, so keep it and drop the marker.
+    cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null) || cwd=""
+    gone=0
+    if [[ $cwd == *" (deleted)" ]]; then
+      cwd="${cwd% (deleted)}"
+      gone=1
+    fi
+
+    if [[ -n $cwd ]]; then
+      if project_dir=$(git_root "$cwd"); then
+        project="${project_dir##*/}"
+      else
+        project="${cwd##*/}"
+      fi
+    else
+      # No readable cwd leaves no directory to name, so the process name is the
+      # only honest label left.
+      project=""
+    fi
+
+    shared=${shared_pid[$pid]:-0}
+
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+      "$pid" "$start_time" "$comm" "$ports" "$exposed" "$cwd" "$project" "$gone" "$shared" "$sockets"
+  done
+}
+
+emit_rows | jq -R -s '
+  def socket_record:
+    split("|") | { port: (.[0] | tonumber), address: .[1], probeHost: .[2] };
+
+  split("\n")
+  | map(select(length > 0) | split("\t"))
+  | map({
+      pid: (.[0] | tonumber),
+      startTime: (.[1] | tonumber),
+      comm: .[2],
+      ports: (.[3] | split(",") | map(tonumber)),
+      exposed: (.[4] == "1"),
+      cwd: .[5],
+      project: (if .[6] == "" then .[2] else .[6] end),
+      cwdDeleted: (.[7] == "1"),
+      shared: (.[8] == "1"),
+      sockets: (.[9] | if . == "" then [] else (split(" ") | map(socket_record)) end)
+    })
+  | sort_by(.ports[0], .pid)
+'

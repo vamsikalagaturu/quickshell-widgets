@@ -1,0 +1,156 @@
+#!/bin/bash
+
+# Vendored from rubenmeza/omarchy-ports (MIT License, Copyright (c) 2026
+# Ruben Meza) -- https://github.com/rubenmeza/omarchy-ports
+#
+# Unmodified apart from this header: the script is plain bash over ss(8) and
+# /proc, with no Omarchy coupling to remove.
+
+# omarchy-ports: stop one dev server, but only after proving it is still the
+# one that was reviewed.
+#
+# A pid on its own is not a durable name for a process. The list the user
+# confirmed against was taken by an earlier scan, and between that scan and the
+# click the server can exit and the kernel can hand its number to something
+# else. Signalling the number alone would then hit a stranger.
+#
+# So a stop names the process three ways, and every one of them is re-derived
+# here before anything is sent:
+#
+#   pid         the number to signal
+#   start time  field 22 of /proc/<pid>/stat, the tick that process began at;
+#               a recycled pid has a different one
+#   ports       the listening sockets the reviewed row was made of; the process
+#               must still own at least one of them
+#
+# The order is deliberate. Ownership is read through ss, which costs a fork, so
+# it is checked first; identity is then re-read as the very last thing before
+# the signal, with nothing forked in between. Identity is the half that makes
+# signalling a stranger impossible, so it is the half that sits closest to the
+# kill.
+#
+# Any mismatch refuses the signal and says why. Nothing is escalated here: the
+# signal to send is an argument, and SIGKILL only ever arrives because the user
+# answered a second question.
+#
+# Usage: ports-stop --pid N --start-time T --ports 3000,3001 [--signal TERM|KILL]
+# Exit:  0 signalled · 1 bad usage · 2 refused
+
+set -uo pipefail
+
+fail() {
+  echo "ports-stop: $*" >&2
+  exit 1
+}
+
+refuse() {
+  echo "ports-stop: $*" >&2
+  exit 2
+}
+
+if [[ ${1:-} == -h || ${1:-} == --help ]]; then
+  cat <<'USAGE'
+Usage: ports-stop --pid N --start-time T --ports 3000[,3001] [--signal TERM|KILL]
+
+Sends one signal to one process, after re-checking that the pid still belongs to
+the same process (start time) and still owns at least one of the given listening
+ports. Refuses with exit 2 on any mismatch. Defaults to SIGTERM.
+USAGE
+  exit 0
+fi
+
+pid=""
+start_time=""
+ports=""
+signal="TERM"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --pid)        pid="${2:-}"; shift 2 || fail "--pid needs a value" ;;
+    --start-time) start_time="${2:-}"; shift 2 || fail "--start-time needs a value" ;;
+    --ports)      ports="${2:-}"; shift 2 || fail "--ports needs a value" ;;
+    --signal)     signal="${2:-}"; shift 2 || fail "--signal needs a value" ;;
+    *)            fail "unexpected argument: $1" ;;
+  esac
+done
+
+[[ $pid =~ ^[0-9]+$ ]]        || fail "--pid must be a number"
+[[ $start_time =~ ^[0-9]+$ ]] || fail "--start-time must be a number"
+[[ $ports =~ ^[0-9]+(,[0-9]+)*$ ]] || fail "--ports must be a comma separated list of port numbers"
+[[ $signal == TERM || $signal == KILL ]] || fail "--signal must be TERM or KILL"
+
+# A row scanned without a readable start time carries 0, which is not a tick any
+# process can have. It is the one value that must never match.
+# Compared as text, not arithmetic: (( )) reads a leading zero as octal and
+# prints a shell diagnostic of its own for something like 08.
+[[ $start_time != 0 ]] || refuse "the reviewed process was never identified; rescan and try again"
+
+command -v ss >/dev/null || fail "ss not found (install iproute2)"
+
+# Field 22 of /proc/<pid>/stat, into `live_start_time`. It answers through a
+# variable rather than stdout so the check can be made without forking a command
+# substitution — see the second check, further down.
+#
+# comm is unsanitised and can hold spaces and parentheses, so the fields are
+# counted from the last ")" rather than from the left.
+live_start_time=""
+read_start_time() {
+  local line rest fields
+  live_start_time=""
+  # Braced so a file that cannot be opened — the process exited a moment ago —
+  # fails quietly. `2>/dev/null` on its own is applied after the read's other
+  # redirect has already failed and printed.
+  { read -r line < "/proc/$1/stat"; } 2>/dev/null || return 1
+  [[ -n $line ]] || return 1
+  rest="${line##*) }"
+  read -r -a fields <<<"$rest"
+  [[ ${fields[19]:-} =~ ^[0-9]+$ ]] || return 1
+  live_start_time="${fields[19]}"
+}
+
+# The listening ports this pid holds right now, read fresh from the kernel
+# rather than from the scan the user was looking at.
+listening_ports_of() {
+  local pid="$1" line local_address port holder _state _recvq _sendq _rest
+  while IFS= read -r line; do
+    [[ $line == *users:* ]] || continue
+    read -r _state _recvq _sendq local_address _rest <<<"$line"
+    port="${local_address##*:}"
+    [[ $port =~ ^[0-9]+$ ]] || continue
+    while IFS= read -r holder; do
+      [[ $holder == "$pid" ]] && printf '%s\n' "$port"
+    done < <(grep -o 'pid=[0-9]*' <<<"${line#*users:}" | cut -d= -f2)
+  done < <(ss -tlnpH 2>/dev/null) | sort -un
+}
+
+[[ -d "/proc/$pid" ]] || refuse "pid $pid is no longer running"
+
+# Only ever this user's own processes, the same set the scan is allowed to see.
+# A pid inherited by a service running as somebody else is not ours to signal.
+[[ -O "/proc/$pid" ]] || refuse "pid $pid does not belong to you"
+
+read_start_time "$pid" || refuse "pid $pid is no longer running"
+[[ $live_start_time == "$start_time" ]] ||
+  refuse "pid $pid is a different process now (started at $live_start_time, not $start_time); nothing was signalled"
+
+held=$(listening_ports_of "$pid")
+matched_ports=""
+while IFS= read -r port; do
+  [[ -n $port ]] || continue
+  grep -qx "$port" <<<"$held" && matched_ports="${matched_ports:+$matched_ports,}$port"
+done < <(tr ',' '\n' <<<"$ports")
+
+[[ -n $matched_ports ]] ||
+  refuse "pid $pid no longer holds any of the ports it was listed with ($ports); nothing was signalled"
+
+# Reading ss took milliseconds, which is time enough for the process to exit and
+# its number to be reused, so identity is confirmed once more as the last thing
+# done before the signal. Both the read and the kill are shell builtins, so
+# nothing is forked in between and the two are as close as a script can put them.
+read_start_time "$pid" || refuse "pid $pid is no longer running"
+[[ $live_start_time == "$start_time" ]] ||
+  refuse "pid $pid exited while it was being checked; nothing was signalled"
+
+kill -"$signal" "$pid" 2>/dev/null || refuse "could not signal pid $pid"
+
+echo "signalled pid $pid with SIG$signal on :${matched_ports//,/ :}"
