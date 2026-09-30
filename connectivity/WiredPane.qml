@@ -15,6 +15,8 @@ Item {
     id: pane
 
     property var shellRoot
+    // height the content needs without scrolling; the window sizes itself to it
+    readonly property real preferredHeight: mainCol.implicitHeight + Theme.s(10) + speedSection.implicitHeight
 
     readonly property var device: {
         var ds = Networking.devices.values

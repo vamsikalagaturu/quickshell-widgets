@@ -7,6 +7,8 @@ Item {
     id: pane
 
     property var shellRoot
+    // height the content needs without scrolling; the window sizes itself to it
+    readonly property real preferredHeight: mainCol.implicitHeight
 
     readonly property var adapter: Bluetooth.defaultAdapter
     readonly property var devices: adapter ? adapter.devices.values : []

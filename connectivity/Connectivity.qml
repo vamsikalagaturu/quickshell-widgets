@@ -42,7 +42,12 @@ Popup {
     }
 
     implicitWidth: Theme.s(760)
-    implicitHeight: Theme.s(620)
+    // one height for all tabs (the tallest one's content, capped; the pane scrolls past that), so switching tabs never resizes
+    readonly property real chromeHeight: tabStrip.y + tabStrip.height + Theme.s(10) + Theme.s(8)
+        + 1 + Theme.s(10) + Theme.s(18) + Theme.s(14)
+    readonly property real paneHeight: Math.max(wifiPane.preferredHeight, wiredPane.preferredHeight, btPane.preferredHeight)
+    implicitHeight: Math.min(Theme.s(620), Math.max(chromeHeight + paneHeight,
+        cheatsheet ? cheatBox.implicitHeight + Theme.s(32) : 0))
 
     // ---- shell-owned state ----
     property int tab: 0
@@ -430,6 +435,7 @@ Popup {
         }
 
         Rectangle {
+            id: cheatBox
             visible: win.cheatsheet
             anchors.centerIn: parent
             width: Theme.s(460)

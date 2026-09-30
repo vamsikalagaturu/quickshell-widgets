@@ -19,6 +19,9 @@ Item {
     id: pane
 
     property var shellRoot
+    // height the content needs without scrolling; the window sizes itself to it
+    readonly property real preferredHeight: mainCol.implicitHeight + Theme.s(10) + speedSection.implicitHeight
+        + (pwdMode ? pwdField.implicitHeight + Theme.s(10) : 0)
 
     // ---- device (never cached -- Networking.devices populates async over
     // DBus, so this must stay a live re-evaluating binding) ----
