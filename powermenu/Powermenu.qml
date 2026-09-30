@@ -34,7 +34,7 @@ Popup {
         { kind: "action", label: "Suspend", icon: "\uf186", cmd: ["systemctl", "suspend"] },
         { kind: "action", label: "Reboot", icon: "\uf021", cmd: ["systemctl", "reboot"] },
         { kind: "action", label: "Shutdown", icon: "\uf011", cmd: ["systemctl", "poweroff"] },
-        { kind: "action", label: "Logout", icon: "\uf2f5", cmd: ["hyprctl", "dispatch", "exit", "0"] },
+        { kind: "action", label: "Logout", icon: "\uf2f5", cmd: ["hyprctl", "dispatch", "hl.dsp.exit()"] },
         { kind: "toggle", id: "lid", label: "Stay awake (lid closed)", icon: "\uf108" },
         { kind: "toggle", id: "idle", label: "Keep screen on (no idle lock)", icon: "\uf0eb" },
         { kind: "profile", label: "Power profile", icon: "\uf0e7" }
