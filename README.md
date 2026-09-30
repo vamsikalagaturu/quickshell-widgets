@@ -1,8 +1,20 @@
-# Quickshell Usage Widget
+# Quickshell Widgets
 
-A small Hyprland/Quickshell widget showing live usage for **Codex** (weekly) and **Claude Code** (5-hour + weekly) as progress bars with reset times, plus a **Quickshell app launcher** that replaces walker. Widget shows on startup for 5s, then hides; toggle with **SUPER + ;**. Launcher opens with **SUPER + D**.
+Hyprland/Quickshell widgets, all loaded by one quickshell process from the root `shell.qml`:
 
-This repo also has standalone widgets in their own subdirectories, each with its own `qmldir`/`shell.qml`, launched separately via `quickshell-intel -p ~/.config/quickshell/<name>` in `hypr/startup.conf`: `connectivity`, `launcher`, `clipboard`, `powermenu`, `github`, `ports`.
+| Widget | Key | What |
+|---|---|---|
+| `usage/` | SUPER + ; | Codex (weekly) and Claude Code (5-hour + weekly) usage bars; shows for 5s on startup |
+| `launcher/` | SUPER + D | app launcher (replaces walker) |
+| `clipboard/` | SUPER + C | clipboard history picker |
+| `connectivity/` | SUPER + S | Wi-Fi, wired and Bluetooth panel |
+| `github/` | SUPER + G | GitHub dashboard |
+| `powermenu/` | SUPER + Escape | power menu |
+| `volume/` | SUPER + M | output/input devices and per-app levels |
+| `osd/` | media keys | volume / mic / brightness on-screen display |
+| `ports/` | SUPER + P | dev servers listening on your ports |
+
+`common/` holds what they share: `Theme` (Nord Polar Night palette and the `s()` scale), `Popup` (a focusable panel toggled by a global shortcut; widgets override `open()`/`close()`), `Card`, `Toggle`, `ScrollTrack` and `Paths.local()` for scripts next to a QML file. Every widget file imports it with `import "../common"`.
 
 ## Dependencies
 
@@ -18,13 +30,15 @@ This repo also has standalone widgets in their own subdirectories, each with its
 
 ### 1. Install
 
-Clone the repo and link it into the quickshell config dir:
+Clone the repo and link the root `shell.qml` and every folder into the quickshell config dir (linked individually because widgets keep state files such as `network.json` in that dir):
 
 ```sh
 git clone https://github.com/vamsikalagaturu/quickshell-widgets ~/quickshell-widgets
 mkdir -p ~/.config/quickshell
 ln -s ~/quickshell-widgets/shell.qml ~/.config/quickshell/shell.qml
-ln -s ~/quickshell-widgets/usage.py ~/.config/quickshell/usage.py
+for d in common usage launcher clipboard connectivity github powermenu volume osd ports; do
+  ln -s ~/quickshell-widgets/$d ~/.config/quickshell/$d
+done
 ```
 
 Test it:
@@ -47,22 +61,23 @@ Requires a ChatGPT Plus/Pro subscription that includes Codex.
 
 `usage.py` queries `https://api.anthropic.com/api/oauth/usage` directly using the OAuth access token Claude Code already stores in `~/.claude/.credentials.json` (same token Claude Code uses). No extra setup needed — Claude Code refreshes the token on every run.
 
-Requires a Claude.ai Pro/Max subscription. Responses are cached 5 min in `~/.cache/claude_usage.json` because the endpoint rate-limits aggressive polling.
+Requires a Claude.ai Pro/Max subscription. Responses are cached 5 min in `~/.cache/claude_usage.json` because the endpoint rate-limits aggressive polling; the cache is dropped early once a window's reset time has passed, so a rolled-over window never shows stale numbers.
 
 Endpoint details (undocumented API, reverse-engineered): [gist.github.com/jtbr/4f99671d1cee06b44106456958caba8b](https://gist.github.com/jtbr/4f99671d1cee06b44106456958caba8b)
 
 ### 4. Autostart + keybind (Hyprland)
 
-In `~/.config/hypr/startup.conf`:
+One line in `~/.config/hypr/startup.conf` starts every widget:
 
 ```
 exec-once = env QT_QUICK_BACKEND=software quickshell -p ~/.config/quickshell
 ```
 
-In `~/.config/hypr/keybinds.conf` (change the key if taken):
+In `~/.config/hypr/keybinds.conf`, bind each widget's global shortcut (`quickshell:toggle-<widget>`; the osd owns `quickshell:volume-*`, `mic-mute` and `brightness-*`), e.g.:
 
 ```
 bindd = SUPER, semicolon, toggle usage widget, global, quickshell:toggle-usage
+bindd = SUPER, D, app launcher, global, quickshell:toggle-launcher
 ```
 
 Reload: `hyprctl reload`. Verify registration: `hyprctl globalshortcuts`.
@@ -81,19 +96,15 @@ Reopening within 60s of the last successful load shows what's already cached ins
 
 Dependencies: [`gh`](https://cli.github.com/) (authenticated — `gh auth login`, plus `gh auth refresh -h github.com -s notifications -s repo` for notifications/private repos) and `jq`.
 
-Autostart + keybind, same pattern as the other widgets:
+Keybind:
 
 ```
-# hypr/startup.conf
-exec-once = $HOME/.local/bin/quickshell-intel -p $HOME/.config/quickshell/github
-
-# hypr/keybinds.conf
 bindd = $mainMod, G, toggle github widget, global, quickshell:toggle-github
 ```
 
 ### Attribution
 
-`Service.qml` and `github-fetch` are ported near-verbatim from [robzolkos/omarchy-github](https://github.com/robzolkos/omarchy-github) (MIT License, Copyright (c) 2026 Rob Zolkos) — a plugin for [Omarchy Quattro](https://github.com/basecamp/omarchy)'s Quickshell bar. That data layer had no Omarchy-specific coupling to begin with. `shell.qml` (the UI) is a fresh implementation against this repo's own `PanelWindow`/`Theme` conventions rather than Omarchy's `qs.Commons`/`qs.Ui` component library, which this repo doesn't have — it ports the original panel's feature set, cursor/filter/sort logic, and mark-as-read flow.
+`Service.qml` and `github-fetch` are ported near-verbatim from [robzolkos/omarchy-github](https://github.com/robzolkos/omarchy-github) (MIT License, Copyright (c) 2026 Rob Zolkos) — a plugin for [Omarchy Quattro](https://github.com/basecamp/omarchy)'s Quickshell bar. That data layer had no Omarchy-specific coupling to begin with. `Github.qml` (the UI) is a fresh implementation against this repo's own `Popup`/`Theme` conventions rather than Omarchy's `qs.Commons`/`qs.Ui` component library, which this repo doesn't have — it ports the original panel's feature set, cursor/filter/sort logic, and mark-as-read flow.
 
 ## `ports/` — dev servers
 
@@ -126,13 +137,9 @@ confirming a stop.
 
 Dependencies: `ss` (iproute2), `jq`, `curl`, `wl-copy`, `xdg-open`.
 
-Autostart + keybind, same pattern as the other widgets:
+Keybind:
 
 ```
-# hypr/startup.conf
-exec-once = $HOME/.local/bin/quickshell-intel -p $HOME/.config/quickshell/ports
-
-# hypr/keybinds.conf
 bindd = $mainMod, P, toggle dev servers panel, global, quickshell:toggle-ports
 ```
 
@@ -147,7 +154,7 @@ scripts with no Omarchy coupling, and the pid-identity check in `ports-stop` is 
 most careful part of the original. `Scanner.qml` is a light port — the plugin
 settings object became plain properties, the helper paths point here, and
 `omarchy-launch-browser` became `xdg-open`, which is what the other widgets in this
-repo open URLs with. `shell.qml` (the UI) is a fresh implementation against this
-repo's own `PanelWindow`/`Theme` conventions rather than Omarchy's `qs.Commons`/`qs.Ui`
+repo open URLs with. `Ports.qml` (the UI) is a fresh implementation against this
+repo's own `Popup`/`Theme` conventions rather than Omarchy's `qs.Commons`/`qs.Ui`
 component library, which this repo doesn't have — it carries over the original
 panel's cursor model, the browsable/exposed distinctions and the two-step stop flow.
