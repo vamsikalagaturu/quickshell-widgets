@@ -14,6 +14,9 @@ Hyprland/Quickshell widgets, all loaded by one quickshell process from the root 
 | `osd/` | media keys | volume / mic / brightness on-screen display |
 | `ports/` | SUPER + P | dev servers listening on your ports |
 | `calendar/` | click waybar's clock | month calendar above the clock; ‹ › or h/l month, k/j year, t today |
+| `keybinds/` | SUPER + Shift + K | searchable list of the live Hyprland binds (`hyprctl binds -j`) |
+| `calc/` | SUPER + Alt + C / SUPER + = | `qalc` calculator; result updates as you type, Enter copies it |
+| `wallpaper/` | SUPER + Shift + W | thumbnail grid of `~/Pictures/wallpapers`, Enter applies with `swww`, Ctrl+R random |
 
 `common/` holds what they share: `Theme` (Nord Polar Night palette and the `s()` scale), `Popup` (a focusable panel toggled by a global shortcut; widgets override `open()`/`close()`), `Card`, `Toggle`, `ScrollTrack` and `Paths.local()` for scripts next to a QML file. Every widget file imports it with `import "../common"`.
 
@@ -37,7 +40,7 @@ Clone the repo and link the root `shell.qml` and every folder into the quickshel
 git clone https://github.com/vamsikalagaturu/quickshell-widgets ~/quickshell-widgets
 mkdir -p ~/.config/quickshell
 ln -s ~/quickshell-widgets/shell.qml ~/.config/quickshell/shell.qml
-for d in common usage launcher clipboard connectivity github powermenu volume osd ports calendar; do
+for d in common usage launcher clipboard connectivity github powermenu volume osd ports calendar keybinds calc wallpaper; do
   ln -s ~/quickshell-widgets/$d ~/.config/quickshell/$d
 done
 ```

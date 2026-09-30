@@ -9,6 +9,9 @@ import "volume" as Volume
 import "osd" as Osd
 import "ports" as Ports
 import "calendar" as Calendar
+import "keybinds" as Keybinds
+import "calc" as Calc
+import "wallpaper" as Wallpaper
 
 // All widgets in one quickshell process: one QML engine instead of one per widget.
 // Each folder still runs alone for testing: quickshell -p <folder>
@@ -23,4 +26,7 @@ ShellRoot {
     Osd.Osd {}
     Ports.Ports {}
     Calendar.Calendar {}
+    Keybinds.Keybinds {}
+    Calc.Calc {}
+    Wallpaper.Wallpaper {}
 }
