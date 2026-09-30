@@ -8,6 +8,7 @@ import "powermenu" as Powermenu
 import "volume" as Volume
 import "osd" as Osd
 import "ports" as Ports
+import "calendar" as Calendar
 
 // All widgets in one quickshell process: one QML engine instead of one per widget.
 // Each folder still runs alone for testing: quickshell -p <folder>
@@ -21,4 +22,5 @@ ShellRoot {
     Volume.Volume {}
     Osd.Osd {}
     Ports.Ports {}
+    Calendar.Calendar {}
 }

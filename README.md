@@ -13,6 +13,7 @@ Hyprland/Quickshell widgets, all loaded by one quickshell process from the root 
 | `volume/` | SUPER + M | output/input devices and per-app levels |
 | `osd/` | media keys | volume / mic / brightness on-screen display |
 | `ports/` | SUPER + P | dev servers listening on your ports |
+| `calendar/` | click waybar's clock | month calendar above the clock; ‹ › or h/l month, k/j year, t today |
 
 `common/` holds what they share: `Theme` (Nord Polar Night palette and the `s()` scale), `Popup` (a focusable panel toggled by a global shortcut; widgets override `open()`/`close()`), `Card`, `Toggle`, `ScrollTrack` and `Paths.local()` for scripts next to a QML file. Every widget file imports it with `import "../common"`.
 
@@ -36,7 +37,7 @@ Clone the repo and link the root `shell.qml` and every folder into the quickshel
 git clone https://github.com/vamsikalagaturu/quickshell-widgets ~/quickshell-widgets
 mkdir -p ~/.config/quickshell
 ln -s ~/quickshell-widgets/shell.qml ~/.config/quickshell/shell.qml
-for d in common usage launcher clipboard connectivity github powermenu volume osd ports; do
+for d in common usage launcher clipboard connectivity github powermenu volume osd ports calendar; do
   ln -s ~/quickshell-widgets/$d ~/.config/quickshell/$d
 done
 ```
