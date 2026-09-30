@@ -1,4 +1,5 @@
 import QtQuick
+import "../common"
 
 // Labeled text input. The ONLY component in this widget that ever takes
 // real Qt focus, and only while `insert` mode is active for it -- driven

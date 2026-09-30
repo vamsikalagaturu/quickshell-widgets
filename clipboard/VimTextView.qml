@@ -1,4 +1,5 @@
 import QtQuick
+import "../common"
 
 // Read-only text view with vim normal/visual motions, so a fragment of a
 // clipboard entry can be selected and yanked with the keyboard.

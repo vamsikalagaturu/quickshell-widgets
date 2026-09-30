@@ -4,8 +4,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Networking
-import Quickshell.Hyprland._GlobalShortcuts
-import Quickshell.Hyprland._FocusGrab
+import "../common"
 
 // ============================================================================
 // Flat focus-ring keyboard model.
@@ -27,24 +26,20 @@ import Quickshell.Hyprland._FocusGrab
 // SpeedTest singleton so both views share one run.
 // ============================================================================
 
-PanelWindow {
+Popup {
     id: win
-    visible: false
-    color: "transparent"
-    // ponytail: no anchors on purpose. wlr-layer-shell centres a surface on
-    // whichever axis it isn't anchored to, on the focused output, and it does
-    // that in logical pixels -- so fractional scale and rotation come out
-    // right for free. Computing margins by hand got both wrong: Hyprland's
-    // monitor width/height are raw physical pixels, and Hyprland.focusedMonitor
-    // is null until the monitor list has been populated over IPC, so it fell
-    // back to win.screen (the laptop) nearly every time.
-    // Normal (not Ignore) with no anchors => exclusive zone 0: the surface
-    // reserves nothing itself but is centred in the area left over by bars
-    // that do. Ignore (-1) centres on the raw output, which sits the panel
-    // half of waybar's height too low.
-    exclusionMode: ExclusionMode.Normal
-    aboveWindows: true
-    focusable: true
+    shortcut: "toggle-connectivity"
+    shortcutDescription: "Toggle connectivity widget"
+
+    // opening resets the panel to its idle state
+    function open() {
+        visible = true
+        insert = false
+        cheatsheet = false
+        confirmArmed = false
+        flashMsg = ""
+        panelBg.forceActiveFocus()
+    }
 
     implicitWidth: Theme.s(760)
     implicitHeight: Theme.s(620)
@@ -141,13 +136,9 @@ PanelWindow {
 
     Timer { id: flashTimer; interval: 2000; onTriggered: win.flashMsg = "" }
 
-    Rectangle {
+    Card {
         id: panelBg
         anchors.fill: parent
-        radius: Theme.s(18)
-        color: "#f20c0e11"
-        border.width: 1
-        border.color: "#1e2228"
         focus: true
 
         Keys.onPressed: event => {
@@ -506,25 +497,4 @@ PanelWindow {
     // item's Keys handler), so cancelling a password prompt or a filter took
     // the whole panel down with it.
     Shortcut { sequence: "Esc"; enabled: !win.insert; onActivated: win.visible = false }
-
-    GlobalShortcut {
-        appid: "quickshell"
-        name: "toggle-connectivity"
-        description: "Toggle connectivity widget"
-        onPressed: {
-            win.visible = !win.visible
-            if (win.visible) {
-                win.insert = false
-                win.cheatsheet = false
-                win.confirmArmed = false
-                win.flashMsg = ""
-                panelBg.forceActiveFocus()
-            }
-        }
-    }
-
-    HyprlandFocusGrab {
-        active: win.visible
-        windows: [win]
-    }
 }

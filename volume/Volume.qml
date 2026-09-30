@@ -3,8 +3,8 @@ import Quickshell
 import Quickshell.Wayland
 import Quickshell.Services.Mpris
 import Quickshell.Services.Pipewire
-import Quickshell.Hyprland._GlobalShortcuts
-import Quickshell.Hyprland._FocusGrab
+import "../common"
+import Quickshell.Io
 
 // Volume panel: every audio device and every playing stream, with its level.
 //
@@ -12,12 +12,16 @@ import Quickshell.Hyprland._FocusGrab
 //   Space or m      mute          Enter        make this the default device
 //   Esc             close         wheel/click  adjust straight from the bar
 //
+// On a PROFILES row h/l picks the card's profile and Enter applies it.
+//
 // On a NOW PLAYING row the two horizontal keys mean previous/next track and
 // Enter/Space is play/pause -- a media row has no level to slide, so the keys
 // would otherwise do nothing there.
 //
 // Everything comes from Quickshell's native Pipewire service -- no wpctl/pactl
-// shelling out, so levels track other apps live instead of on a poll. Nodes
+// shelling out, so levels track other apps live instead of on a poll. The one
+// exception is card profiles, which that service does not expose: those come
+// from `pactl`, refreshed on `pactl subscribe` card events. Nodes
 // only publish their audio properties while something holds them open, which
 // is what the PwObjectTracker below is for.
 //
@@ -34,16 +38,10 @@ import Quickshell.Hyprland._FocusGrab
 // This does NOT replace the XF86Audio keys (they still run Volume.sh, which
 // draws its own OSD); it is the panel you open when you want to see and move
 // several devices at once.
-PanelWindow {
+Popup {
     id: win
-    visible: false
-    color: "transparent"
-    // ponytail: no anchors on purpose -- see the other widgets. wlr-layer-shell
-    // centres an unanchored surface on the focused output, in logical pixels,
-    // which is the only version of this that survives fractional scaling.
-    exclusionMode: ExclusionMode.Normal
-    aboveWindows: true
-    focusable: true
+    shortcut: "toggle-volume"
+    shortcutDescription: "Toggle volume panel"
 
     implicitWidth: Theme.s(420)
     // Derived from the chrome instead of a guessed constant: a fixed pad was
@@ -82,6 +80,95 @@ PanelWindow {
             && o.dbusName.indexOf(p.dbusName + ".") === 0))
     }
 
+    // ---- card profiles ----
+    property var cards: []
+    // card name -> profile picked with h/l but not yet applied with Enter
+    property var pendingProfile: ({})
+
+    function parseCards(text) {
+        var list
+        try { list = JSON.parse(text) } catch (e) { return win.cards }
+        return list.map(c => ({
+            name: c.name,
+            label: c.properties["device.description"] || c.name,
+            bluetooth: c.name.indexOf("bluez_card.") === 0,
+            active: c.active_profile,
+            profiles: Object.keys(c.profiles)
+                .filter(p => c.profiles[p].available)
+                .map(p => ({ name: p, label: c.profiles[p].description }))
+        }))
+    }
+
+    function refreshCards() {
+        cardsProc.running = false
+        cardsProc.running = true
+    }
+
+    function shownProfile(card) {
+        return win.pendingProfile[card.name] || card.active
+    }
+
+    function profileLabel(card) {
+        var name = shownProfile(card)
+        var p = card.profiles.find(x => x.name === name)
+        return p ? p.label : name
+    }
+
+    function setPending(card, name) {
+        var next = Object.assign({}, win.pendingProfile)
+        if (name === card.active) delete next[card.name]
+        else next[card.name] = name
+        win.pendingProfile = next
+    }
+
+    function cycleProfile(card, delta) {
+        if (card.profiles.length === 0) return
+        var i = card.profiles.findIndex(x => x.name === shownProfile(card))
+        var n = card.profiles.length
+        setPending(card, card.profiles[(i + delta + n) % n].name)
+    }
+
+    function applyProfile(card) {
+        var name = win.pendingProfile[card.name]
+        if (!name) return
+        Quickshell.execDetached(["pactl", "set-card-profile", card.name, name])
+        setPending(card, card.active)
+    }
+
+    Process {
+        id: cardsProc
+        command: ["pactl", "-f", "json", "list", "cards"]
+        stdout: StdioCollector {
+            onStreamFinished: win.cards = win.parseCards(text)
+        }
+    }
+
+    // One profile switch fires a burst of card events; read once per burst.
+    Timer {
+        id: cardsDebounce
+        interval: 150
+        onTriggered: win.refreshCards()
+    }
+
+    Process {
+        id: cardWatch
+        running: true
+        command: ["pactl", "subscribe"]
+        stdout: SplitParser {
+            onRead: line => { if (line.indexOf(" on card ") !== -1) cardsDebounce.restart() }
+        }
+        // dies with pipewire-pulse; come back once it has restarted
+        onExited: watchRestart.start()
+    }
+
+    Timer {
+        id: watchRestart
+        interval: 2000
+        onTriggered: { cardWatch.running = true; win.refreshCards() }
+    }
+
+    Component.onCompleted: refreshCards()
+
     function playerLabel(p) {
         var t = p.trackTitle || p.identity || "unknown"
         return p.trackArtist ? t + "  —  " + p.trackArtist : t
@@ -105,6 +192,10 @@ PanelWindow {
         if (sources.length) {
             out.push({ kind: "header", label: "INPUT" })
             for (var j = 0; j < sources.length; j++) out.push({ kind: "source", node: sources[j] })
+        }
+        if (cards.length) {
+            out.push({ kind: "header", label: "PROFILES" })
+            for (var p = 0; p < cards.length; p++) out.push({ kind: "profile", card: cards[p] })
         }
         if (playbackStreams.length) {
             out.push({ kind: "header", label: "PLAYING" })
@@ -172,6 +263,7 @@ PanelWindow {
             else if (r.player.canGoPrevious) r.player.previous()
             return
         }
+        if (r.kind === "profile") { cycleProfile(r.card, delta > 0 ? 1 : -1); return }
         if (!r.node.audio) return
         setVolume(r, r.node.audio.volume + delta)
         // turning it up is an unambiguous "I want to hear this"
@@ -182,6 +274,7 @@ PanelWindow {
         var r = current()
         if (!r) return
         if (r.kind === "player") { r.player.togglePlaying(); return }
+        if (r.kind === "profile") return
         if (r.node.audio) r.node.audio.muted = !r.node.audio.muted
     }
 
@@ -189,24 +282,22 @@ PanelWindow {
         var r = current()
         if (!r) return
         if (r.kind === "player") { r.player.togglePlaying(); return }
+        if (r.kind === "profile") { applyProfile(r.card); return }
         if (r.kind === "sink") Pipewire.preferredDefaultAudioSink = r.node
         else if (r.kind === "source") Pipewire.preferredDefaultAudioSource = r.node
     }
 
     function open() {
+        win.pendingProfile = ({})
         win.visible = true
         win.selectFirst()
     }
 
     function close() { win.visible = false }
 
-    Rectangle {
+    Card {
         id: panelBg
         anchors.fill: parent
-        radius: Theme.s(18)
-        color: "#f20c0e11"
-        border.width: 1
-        border.color: "#1e2228"
         focus: true
 
         Keys.onPressed: event => {
@@ -259,7 +350,8 @@ PanelWindow {
                     readonly property bool isHeader: modelData.kind === "header"
                     readonly property bool focused: index === win.selection
                     readonly property bool isPlayer: modelData.kind === "player"
-                    readonly property bool hasLevel: !isHeader && !isPlayer
+                    readonly property bool isProfile: modelData.kind === "profile"
+                    readonly property bool hasLevel: !isHeader && !isPlayer && !isProfile
                     readonly property var audio: hasLevel ? modelData.node.audio : null
                     readonly property real vol: audio ? audio.volume : 0
                     readonly property bool muted: audio ? audio.muted : false
@@ -286,8 +378,6 @@ PanelWindow {
                         anchors.fill: parent
                         radius: Theme.s(8)
                         color: row.focused ? Theme.surfaceAlt : "transparent"
-                        border.width: row.focused ? 1 : 0
-                        border.color: Theme.accent
 
                         MouseArea {
                             anchors.fill: parent
@@ -315,6 +405,8 @@ PanelWindow {
                                 if (row.isHeader) return ""
                                 if (row.isPlayer)
                                     return row.modelData.player.isPlaying ? "\uf04c" : "\uf04b"
+                                if (row.isProfile)
+                                    return row.modelData.card.bluetooth ? "\udb80\udcaf" : "\udb81\udcc3"
                                 if (row.modelData.kind === "source"
                                     || row.modelData.kind === "recstream")
                                     return row.muted ? "" : ""
@@ -340,12 +432,14 @@ PanelWindow {
                             anchors.leftMargin: Theme.s(8) + (defaultDot.visible ? Theme.s(12) : 0)
                             // stop at whichever right-hand element this row
                             // actually has, or a media row leaves a bar-shaped hole
-                            anchors.right: row.hasLevel ? bar.left : playerId.left
+                            anchors.right: row.hasLevel ? bar.left
+                                         : row.isProfile ? profileText.left : playerId.left
                             anchors.rightMargin: Theme.s(12)
                             anchors.verticalCenter: parent.verticalCenter
                             elide: Text.ElideRight
                             text: row.isHeader ? ""
                                 : row.isPlayer ? win.playerLabel(row.modelData.player)
+                                : row.isProfile ? row.modelData.card.label
                                 : win.label(row.modelData.node)
                             font.pixelSize: Theme.s(12)
                             color: row.focused ? Theme.text : Theme.dim
@@ -413,6 +507,22 @@ PanelWindow {
                             font.pixelSize: Theme.s(11)
                             color: Theme.muted
                         }
+
+                        // Warn-coloured while the shown profile is picked but not applied.
+                        Text {
+                            id: profileText
+                            visible: row.isProfile
+                            readonly property bool pending: row.isProfile
+                                && win.pendingProfile[row.modelData.card.name] !== undefined
+                            anchors.right: parent.right; anchors.rightMargin: Theme.s(12)
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: Math.min(implicitWidth, parent.width * 0.6)
+                            elide: Text.ElideLeft
+                            text: row.isProfile ? "‹ " + win.profileLabel(row.modelData.card) + " ›" : ""
+                            font.family: Theme.mono
+                            font.pixelSize: Theme.s(11)
+                            color: pending ? Theme.warn : row.focused ? Theme.text : Theme.dim
+                        }
                     }
                 }
             }
@@ -445,24 +555,11 @@ PanelWindow {
             elide: Text.ElideRight
             text: win.current() && win.current().kind === "player"
                   ? "j/k move  ·  h/l prev/next  ·  Space play/pause  ·  Esc close"
+                  : win.current() && win.current().kind === "profile"
+                  ? "j/k move  ·  h/l pick profile  ·  Enter apply  ·  Esc close"
                   : "j/k move  ·  h/l ±5%  ·  Space mute  ·  Enter set default  ·  Esc close"
             font.pixelSize: Theme.s(11)
             color: Theme.dim
         }
-    }
-
-    GlobalShortcut {
-        appid: "quickshell"
-        name: "toggle-volume"
-        description: "Toggle volume panel"
-        onPressed: {
-            if (win.visible) win.close()
-            else win.open()
-        }
-    }
-
-    HyprlandFocusGrab {
-        active: win.visible
-        windows: [win]
     }
 }

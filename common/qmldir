@@ -1,0 +1,6 @@
+singleton Theme 1.0 Theme.qml
+singleton Paths 1.0 Paths.qml
+ScrollTrack 1.0 ScrollTrack.qml
+Toggle 1.0 Toggle.qml
+Card 1.0 Card.qml
+Popup 1.0 Popup.qml

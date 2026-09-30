@@ -2,8 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
-import Quickshell.Hyprland._GlobalShortcuts
-import Quickshell.Hyprland._FocusGrab
+import "../common"
 
 // App launcher, styled to match the network panel (connectivity/) and using
 // the same modal keyboard model as the clipboard picker.
@@ -13,24 +12,10 @@ import Quickshell.Hyprland._FocusGrab
 // single-letter j/k/g/G bindings (they would just type): move with the
 // arrows or Ctrl+N/P, page with PageUp/PageDown, Enter launches, and Esc
 // clears a filter and then closes.
-PanelWindow {
+Popup {
     id: win
-    visible: false
-    color: "transparent"
-    // ponytail: no anchors on purpose. wlr-layer-shell centres a surface on
-    // whichever axis it isn't anchored to, on the focused output, and it does
-    // that in logical pixels -- so fractional scale and rotation come out
-    // right for free. Computing margins by hand got both wrong: Hyprland's
-    // monitor width/height are raw physical pixels, and Hyprland.focusedMonitor
-    // is null until the monitor list has been populated over IPC, so it fell
-    // back to win.screen (the laptop) nearly every time.
-    // Normal (not Ignore) with no anchors => exclusive zone 0: the surface
-    // reserves nothing itself but is centred in the area left over by bars
-    // that do. Ignore (-1) centres on the raw output, which sits the panel
-    // half of waybar's height too low.
-    exclusionMode: ExclusionMode.Normal
-    aboveWindows: true
-    focusable: true
+    shortcut: "toggle-launcher"
+    shortcutDescription: "Toggle app launcher"
 
     implicitWidth: Theme.s(640)
     implicitHeight: Theme.s(560)
@@ -92,7 +77,7 @@ PanelWindow {
         query.forceActiveFocus()
     }
 
-    function closeLauncher() {
+    function close() {
         win.visible = false
         win.filterText = ""
         query.text = ""
@@ -101,24 +86,20 @@ PanelWindow {
     function launchCurrent() {
         var e = filtered[selection]
         if (!e) return
-        closeLauncher()
+        close()
         e.execute()
     }
 
-    Rectangle {
+    Card {
         id: panelBg
         anchors.fill: parent
-        radius: Theme.s(18)
-        color: "#f20c0e11"
-        border.width: 1
-        border.color: "#1e2228"
         focus: true
 
         // Fallback only -- `query` owns the keyboard while the launcher is open.
         Keys.onPressed: event => {
             var k = event.key
 
-            if (k === Qt.Key_Escape) { win.closeLauncher(); event.accepted = true }
+            if (k === Qt.Key_Escape) { win.close(); event.accepted = true }
             else if (k === Qt.Key_Down) { win.move(1); event.accepted = true }
             else if (k === Qt.Key_Up) { win.move(-1); event.accepted = true }
             else if (k === Qt.Key_PageDown) { win.move(8); event.accepted = true }
@@ -136,9 +117,9 @@ PanelWindow {
             anchors.right: parent.right; anchors.rightMargin: Theme.s(16)
             height: Theme.s(44)
             radius: Theme.s(10)
-            color: Theme.surfaceAlt
+            color: Theme.surface
             border.width: 1
-            border.color: query.activeFocus ? Theme.accent : Theme.line
+            border.color: query.activeFocus ? Qt.alpha(Theme.accent, 0.6) : Theme.line
 
             Text {
                 anchors.left: parent.left
@@ -172,7 +153,7 @@ PanelWindow {
                             query.text = ""
                             win.updateFilter()
                         } else {
-                            win.closeLauncher()
+                            win.close()
                         }
                         event.accepted = true
                     } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
@@ -229,11 +210,8 @@ PanelWindow {
                 width: list.width
                 height: win.rowHeight
                 radius: Theme.s(8)
-                // no left accent bar -- border + fill carry focus, matching
-                // the network panel's ListRow
+                // Nord: nord2 is the selection colour
                 color: index === win.selection ? Theme.surfaceAlt : "transparent"
-                border.width: index === win.selection ? 1 : 0
-                border.color: Theme.accent
 
                 MouseArea {
                     anchors.fill: parent
@@ -252,11 +230,21 @@ PanelWindow {
                     color: Theme.surface
 
                     Image {
+                        id: appIcon
                         anchors.centerIn: parent
                         width: Theme.s(22); height: Theme.s(22)
                         source: modelData.icon ? Quickshell.iconPath(modelData.icon, true) : ""
                         sourceSize: Qt.size(Theme.s(22), Theme.s(22))
                         smooth: true
+                    }
+                    // apps whose icon doesn't resolve get their initial instead of an empty tile
+                    Text {
+                        anchors.centerIn: parent
+                        visible: appIcon.status !== Image.Ready
+                        text: (modelData.name || "?").charAt(0).toUpperCase()
+                        font.pixelSize: Theme.s(14)
+                        font.bold: true
+                        color: Theme.muted
                     }
                 }
 
@@ -274,7 +262,7 @@ PanelWindow {
                         text: modelData.name || ""
                         font.pixelSize: Theme.s(13)
                         font.weight: Font.DemiBold
-                        color: index === win.selection ? Theme.accent : Theme.text
+                        color: Theme.text
                     }
                     Text {
                         width: parent.width
@@ -332,20 +320,5 @@ PanelWindow {
                 color: Theme.dim
             }
         }
-    }
-
-    GlobalShortcut {
-        appid: "quickshell"
-        name: "toggle-launcher"
-        description: "Toggle app launcher"
-        onPressed: {
-            if (win.visible) win.closeLauncher()
-            else win.open()
-        }
-    }
-
-    HyprlandFocusGrab {
-        active: win.visible
-        windows: [win]
     }
 }

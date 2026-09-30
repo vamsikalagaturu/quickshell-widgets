@@ -1,4 +1,5 @@
 import QtQuick
+import "../common"
 import Quickshell
 import Quickshell.Bluetooth
 
@@ -226,10 +227,12 @@ Item {
                                 color: devRow.modelData.connected ? Theme.accent : Theme.text
                             },
                             Text {
+                                // smaller than the name: a Row top-aligns, so centre it explicitly
+                                anchors.verticalCenter: parent.verticalCenter
                                 visible: devRow.modelData.paired || devRow.modelData.bonded
                                 text: devRow.modelData.connected ? "connected" : "paired"
                                 font.pixelSize: Theme.s(10)
-                                color: Theme.dim
+                                color: Theme.muted
                             }
                         ]
                         rightContent: [

@@ -1,4 +1,5 @@
 import QtQuick
+import "../common"
 import Quickshell
 import Quickshell.Io
 
@@ -34,7 +35,7 @@ Item {
         loaded = null
         draft = null
         editItems = []
-        showProc.command = ["python3", Quickshell.shellPath("net.py"), "show", uuid]
+        showProc.command = ["python3", Paths.local(Qt.resolvedUrl("net.py")), "show", uuid]
         showProc.running = true
     }
 
@@ -130,7 +131,7 @@ Item {
         applyError = ""
         applyOk = ""
         var args = ["apply", loaded.uuid].concat(buildApplyArgs())
-        applyProc.command = ["python3", Quickshell.shellPath("net.py")].concat(args)
+        applyProc.command = ["python3", Paths.local(Qt.resolvedUrl("net.py"))].concat(args)
         applyProc.running = true
     }
 

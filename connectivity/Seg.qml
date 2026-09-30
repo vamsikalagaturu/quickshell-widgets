@@ -1,4 +1,5 @@
 import QtQuick
+import "../common"
 
 // Segmented multiple-choice control (ipv4 method, band, powersave, ...).
 // activate()/toggleItem() on the owning pane calls next()/prev() or clicks

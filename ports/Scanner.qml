@@ -1,4 +1,5 @@
 import QtQuick
+import "../common"
 import Quickshell
 import Quickshell.Io
 
@@ -38,8 +39,8 @@ Item {
     // separate verified signals rather than one command line overwriting another.
     property var stopQueue: []
 
-    readonly property string scanPath: String(Qt.resolvedUrl("ports-scan")).replace(/^file:\/\//, "")
-    readonly property string stopPath: String(Qt.resolvedUrl("ports-stop")).replace(/^file:\/\//, "")
+    readonly property string scanPath: Paths.local(Qt.resolvedUrl("ports-scan"))
+    readonly property string stopPath: Paths.local(Qt.resolvedUrl("ports-stop"))
 
     // ---- browsable -------------------------------------------------------
     // Whether a port speaks HTTP is a fact about the running server, so it is

@@ -5,6 +5,7 @@ import Quickshell.Wayland
 import Quickshell.Wayland._WlrLayerShell
 import Quickshell.Services.Pipewire
 import Quickshell.Hyprland._GlobalShortcuts
+import "../common"
 
 // On-screen display for the media keys, replacing the notify-send popups that
 // Volume.sh and Brightness.sh drew.
@@ -137,12 +138,9 @@ PanelWindow {
     }
 
     // ---- chrome ----
-    Rectangle {
+    Card {
         anchors.fill: parent
         radius: Theme.s(14)
-        color: "#f20c0e11"
-        border.width: 1
-        border.color: "#1e2228"
 
         Text {
             id: glyph

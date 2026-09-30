@@ -2,8 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
-import Quickshell.Hyprland._GlobalShortcuts
-import Quickshell.Hyprland._FocusGrab
+import "../common"
 
 // Dev servers: every TCP socket you have in LISTEN state, one row per process,
 // named by the git project it was started in. Open it, copy its URL, or stop it.
@@ -20,16 +19,10 @@ import Quickshell.Hyprland._FocusGrab
 //
 // j/k or arrows move the cursor, Enter opens a web server (or copies the URL of
 // anything else), o opens, c copies, x stops, r rescans, Esc closes.
-PanelWindow {
+Popup {
     id: win
-    visible: false
-    color: "transparent"
-    // ponytail: no anchors on purpose -- see the other widgets. wlr-layer-shell
-    // centres an unanchored surface on the focused output, in logical pixels,
-    // which is the only version of this that survives fractional scaling.
-    exclusionMode: ExclusionMode.Normal
-    aboveWindows: true
-    focusable: true
+    shortcut: "toggle-ports"
+    shortcutDescription: "Toggle dev servers panel"
 
     implicitWidth: Theme.s(440)
     // Derived from the chrome rather than a guessed constant, same as the
@@ -155,13 +148,9 @@ PanelWindow {
         }
     }
 
-    Rectangle {
+    Card {
         id: panelBg
         anchors.fill: parent
-        radius: Theme.s(18)
-        color: "#f20c0e11"
-        border.width: 1
-        border.color: "#1e2228"
         focus: true
 
         // Escape is handled by the top-level Shortcut below, not here -- Qt
@@ -261,8 +250,6 @@ PanelWindow {
                                 height: implicitHeight
                                 radius: Theme.s(6)
                                 color: selected ? Theme.surfaceAlt : "transparent"
-                                border.width: selected ? 1 : 0
-                                border.color: Theme.accent
 
                                 onSelectedChanged: if (selected && win.cursorActive) Qt.callLater(function() {
                                     var top = rowItem.y
@@ -496,7 +483,7 @@ PanelWindow {
             anchors.fill: parent
             radius: parent.radius
             visible: win.confirmOpen
-            color: "#e60c0e11"
+            color: Qt.alpha(Theme.bg, 0.9)
 
             // Swallows clicks so nothing behind the question can be reached
             // while it is up.
@@ -610,20 +597,5 @@ PanelWindow {
             if (win.confirmOpen) win.cancelStop()
             else win.close()
         }
-    }
-
-    GlobalShortcut {
-        appid: "quickshell"
-        name: "toggle-ports"
-        description: "Toggle dev servers panel"
-        onPressed: {
-            if (win.visible) win.close()
-            else win.open()
-        }
-    }
-
-    HyprlandFocusGrab {
-        active: win.visible
-        windows: [win]
     }
 }

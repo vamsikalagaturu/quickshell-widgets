@@ -1,3 +1,2 @@
-singleton Theme 1.0 Theme.qml
-ScrollTrack 1.0 ScrollTrack.qml
 VimTextView 1.0 VimTextView.qml
+Clipboard 1.0 Clipboard.qml

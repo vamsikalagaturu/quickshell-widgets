@@ -1,4 +1,5 @@
 import QtQuick
+import "../common"
 import Quickshell
 import Quickshell.Io
 import Quickshell.Networking
@@ -29,7 +30,7 @@ Item {
     property var connList: []
 
     function refreshConns() {
-        connsProc.command = ["python3", Quickshell.shellPath("net.py"), "conns"]
+        connsProc.command = ["python3", Paths.local(Qt.resolvedUrl("net.py")), "conns"]
         connsProc.running = true
     }
 
@@ -47,7 +48,7 @@ Item {
     property var activeInfo: ({})
 
     function refreshActive() {
-        activeProc.command = ["python3", Quickshell.shellPath("net.py"), "active"]
+        activeProc.command = ["python3", Paths.local(Qt.resolvedUrl("net.py")), "active"]
         activeProc.running = true
     }
 

@@ -1,4 +1,5 @@
 import QtQuick
+import "../common"
 import Quickshell
 
 // Dumb view over the SpeedTest singleton. Wi-Fi and Wired tabs each embed

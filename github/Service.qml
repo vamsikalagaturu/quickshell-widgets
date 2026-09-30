@@ -1,4 +1,5 @@
 import QtQuick
+import "../common"
 import Quickshell
 import Quickshell.Io
 
@@ -99,7 +100,7 @@ Item {
     }
 
     function helperPath() {
-        return Qt.resolvedUrl("github-fetch").toString().replace(/^file:\/\//, "");
+        return Paths.local(Qt.resolvedUrl("github-fetch"));
     }
 
     // Actions scanning (5+ calls per repo) is always off: it's the majority

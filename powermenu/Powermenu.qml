@@ -3,8 +3,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Services.UPower
-import Quickshell.Hyprland._GlobalShortcuts
-import Quickshell.Hyprland._FocusGrab
+import "../common"
 
 // Power menu, replacing the old rofi/walker Powermenu.sh bound to SUPER+Escape.
 //
@@ -17,24 +16,10 @@ import Quickshell.Hyprland._FocusGrab
 // This widget also carries the low-battery watchdog (see "battery" below):
 // it is the one always-running piece that is already about power, so the
 // alternative was a second exec-once script doing nothing else.
-PanelWindow {
+Popup {
     id: win
-    visible: false
-    color: "transparent"
-    // ponytail: no anchors on purpose. wlr-layer-shell centres a surface on
-    // whichever axis it isn't anchored to, on the focused output, and it does
-    // that in logical pixels -- so fractional scale and rotation come out
-    // right for free. Computing margins by hand got both wrong: Hyprland's
-    // monitor width/height are raw physical pixels, and Hyprland.focusedMonitor
-    // is null until the monitor list has been populated over IPC, so it fell
-    // back to win.screen (the laptop) nearly every time.
-    // Normal (not Ignore) with no anchors => exclusive zone 0: the surface
-    // reserves nothing itself but is centred in the area left over by bars
-    // that do. Ignore (-1) centres on the raw output, which sits the panel
-    // half of waybar's height too low.
-    exclusionMode: ExclusionMode.Normal
-    aboveWindows: true
-    focusable: true
+    shortcut: "toggle-powermenu"
+    shortcutDescription: "Toggle power menu"
 
     implicitWidth: Theme.s(320)
     implicitHeight: col.implicitHeight + Theme.s(32)
@@ -222,13 +207,9 @@ PanelWindow {
     onBatteryPctChanged: win.checkBattery()
     onDischargingChanged: win.checkBattery()
 
-    Rectangle {
+    Card {
         id: panelBg
         anchors.fill: parent
-        radius: Theme.s(18)
-        color: "#f20c0e11"
-        border.width: 1
-        border.color: "#1e2228"
         focus: true
 
         // Fallback only -- `query` owns the keyboard while the menu is open.
@@ -314,7 +295,7 @@ PanelWindow {
                     anchors.verticalCenter: parent.verticalCenter
                     visible: win.batteryPct >= 0
                     text: win.batteryPct + "%" + (win.discharging ? "" : " \uf1e6")
-                    font.family: "JetBrainsMono Nerd Font Mono"
+                    font.family: Theme.mono
                     font.pixelSize: Theme.s(11)
                     color: win.discharging && win.batteryPct < 15 ? Theme.warn : Theme.muted
                 }
@@ -332,8 +313,6 @@ PanelWindow {
                     height: Theme.s(42)
                     radius: Theme.s(8)
                     color: index === win.selection ? Theme.surfaceAlt : "transparent"
-                    border.width: index === win.selection ? 1 : 0
-                    border.color: Theme.accent
 
                     MouseArea {
                         anchors.fill: parent
@@ -351,7 +330,7 @@ PanelWindow {
                             anchors.verticalCenter: parent.verticalCenter
                             horizontalAlignment: Text.AlignHCenter
                             text: modelData.icon
-                            font.family: "JetBrainsMono Nerd Font Mono"
+                            font.family: Theme.mono
                             font.pixelSize: Theme.s(14)
                             color: index === win.selection ? Theme.accent : Theme.dim
                         }
@@ -399,20 +378,5 @@ PanelWindow {
                 color: Theme.muted
             }
         }
-    }
-
-    GlobalShortcut {
-        appid: "quickshell"
-        name: "toggle-powermenu"
-        description: "Toggle power menu"
-        onPressed: {
-            if (win.visible) win.close()
-            else win.open()
-        }
-    }
-
-    HyprlandFocusGrab {
-        active: win.visible
-        windows: [win]
     }
 }

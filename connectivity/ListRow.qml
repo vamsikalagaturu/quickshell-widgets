@@ -1,4 +1,5 @@
 import QtQuick
+import "../common"
 
 // Generic focusable list row (accent bar + border per focus rules).
 //
@@ -26,9 +27,7 @@ Rectangle {
     implicitHeight: Theme.s(42)
     height: implicitHeight
     radius: Theme.s(8)
-    color: focused ? Theme.surfaceAlt : (activeState ? "#2e7d5b26" : "transparent")
-    border.width: focused ? 1 : 0
-    border.color: Theme.accent
+    color: focused ? Theme.surfaceAlt : (activeState ? Qt.alpha(Theme.accentDim, 0.15) : "transparent")
     opacity: dim ? 0.55 : 1
 
     // No left accent bar: the border + surface fill already mark focus, and

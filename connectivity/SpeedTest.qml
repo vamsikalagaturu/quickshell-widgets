@@ -1,5 +1,6 @@
 pragma Singleton
 import QtQuick
+import "../common"
 import Quickshell
 import Quickshell.Io
 
@@ -37,7 +38,7 @@ QtObject {
         samples = []
         var args = ["speedtest", "--duration", String(duration)]
         if (!uploadEnabled) args.push("--no-upload")
-        proc.command = ["python3", Quickshell.shellPath("net.py")].concat(args)
+        proc.command = ["python3", Paths.local(Qt.resolvedUrl("net.py"))].concat(args)
         running = true
         proc.running = true
     }

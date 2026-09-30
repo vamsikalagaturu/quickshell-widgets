@@ -2,8 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
-import Quickshell.Hyprland._GlobalShortcuts
-import Quickshell.Hyprland._FocusGrab
+import "../common"
 
 // GitHub dashboard: unread notifications, review requests, your open pull
 // requests (with check state), assigned issues, running/failed Actions, and a
@@ -21,20 +20,10 @@ import Quickshell.Hyprland._FocusGrab
 // Enter opens the selected row on github.com, m marks the selected
 // notification read, M arms then confirms "mark all read", / focuses the
 // repo filter, r refreshes, Esc closes.
-PanelWindow {
+Popup {
     id: win
-    visible: false
-    color: "transparent"
-    // ponytail: no anchors on purpose. wlr-layer-shell centres a surface on
-    // whichever axis it isn't anchored to, on the focused output, and it does
-    // that in logical pixels -- so fractional scale and rotation come out
-    // right for free. Computing margins by hand got both wrong: Hyprland's
-    // monitor width/height are raw physical pixels, and Hyprland.focusedMonitor
-    // is null until the monitor list has been populated over IPC, so it fell
-    // back to win.screen (the laptop) nearly every time.
-    exclusionMode: ExclusionMode.Normal
-    aboveWindows: true
-    focusable: true
+    shortcut: "toggle-github"
+    shortcutDescription: "Toggle GitHub dashboard"
 
     implicitWidth: Theme.s(520)
     implicitHeight: Theme.s(640)
@@ -388,13 +377,9 @@ PanelWindow {
     // supposed to cover everything waiting on you.
     Service { id: github; settings: ({ repositoryScope: "Owned and organizations" }) }
 
-    Rectangle {
+    Card {
         id: panelBg
         anchors.fill: parent
-        radius: Theme.s(18)
-        color: "#f20c0e11"
-        border.width: 1
-        border.color: "#1e2228"
         focus: true
 
         // Escape is handled by the top-level Shortcut below, not here -- Qt
@@ -511,13 +496,16 @@ PanelWindow {
                 }
 
                 Rectangle {
+                    // loading is neutral, a failed refresh red, partial results yellow
+                    readonly property color tone: github.state === "error" ? Theme.danger
+                        : github.state === "ready" ? Theme.warn : Theme.line
                     visible: github.state !== "ready" || github.warnings.length > 0
                     width: parent.width
                     implicitHeight: statusText.implicitHeight + Theme.s(14)
                     radius: Theme.s(8)
-                    color: "#332e1a1a"
+                    color: github.state === "loading" ? Theme.surface : Qt.alpha(tone, 0.2)
                     border.width: 1
-                    border.color: Theme.danger
+                    border.color: tone
 
                     Text {
                         id: statusText
@@ -529,7 +517,7 @@ PanelWindow {
                             if (github.warnings.length > 1) summary += " · " + (github.warnings.length - 1) + " more"
                             return summary
                         }
-                        color: github.state === "ready" ? Theme.dim : Theme.danger
+                        color: github.state === "error" ? Theme.danger : Theme.dim
                         font.family: Theme.mono
                         font.pixelSize: Theme.s(11)
                         wrapMode: Text.WordWrap
@@ -582,8 +570,6 @@ PanelWindow {
                                     height: implicitHeight
                                     radius: Theme.s(6)
                                     color: selected ? Theme.surfaceAlt : "transparent"
-                                    border.width: selected ? 1 : 0
-                                    border.color: Theme.accent
 
                                     // Stops short of markReadBtn rather than anchors.fill: parent --
                                     // a disabled child MouseArea (busy/loading) doesn't block clicks,
@@ -835,8 +821,6 @@ PanelWindow {
                             height: implicitHeight
                             radius: Theme.s(6)
                             color: selected ? Theme.surfaceAlt : "transparent"
-                            border.width: selected ? 1 : 0
-                            border.color: Theme.accent
 
                             MouseArea {
                                 anchors.fill: parent
@@ -919,8 +903,6 @@ PanelWindow {
                             height: implicitHeight
                             radius: Theme.s(6)
                             color: selected ? Theme.surfaceAlt : "transparent"
-                            border.width: selected ? 1 : 0
-                            border.color: Theme.accent
 
                             MouseArea {
                                 anchors.fill: parent
@@ -1159,7 +1141,6 @@ PanelWindow {
                 ? "j/k move · Enter open · m mark read · M mark all · / search · , settings · r refresh · Esc close"
                 : "j/k move · Enter open · / search · , settings · r refresh · Esc close"
             color: Theme.dim
-            font.family: Theme.mono
             font.pixelSize: Theme.s(10)
         }
     }
@@ -1170,20 +1151,5 @@ PanelWindow {
             if (win.mode === "settings") win.mode = "dashboard"
             else win.close()
         }
-    }
-
-    GlobalShortcut {
-        appid: "quickshell"
-        name: "toggle-github"
-        description: "Toggle GitHub dashboard"
-        onPressed: {
-            if (win.visible) win.close()
-            else win.open()
-        }
-    }
-
-    HyprlandFocusGrab {
-        active: win.visible
-        windows: [win]
     }
 }

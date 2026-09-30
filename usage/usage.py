@@ -36,11 +36,27 @@ def fetch_claude():
         return json.load(r)
 
 
+def rolled_over(data, now):
+    """True once any usage window in the data has passed its reset time."""
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if k in ("reset_at", "resets_at") and v:
+                if (v if isinstance(v, (int, float)) else iso_epoch(v)) <= now:
+                    return True
+            elif rolled_over(v, now):
+                return True
+    elif isinstance(data, list):
+        return any(rolled_over(v, now) for v in data)
+    return False
+
+
 def fetch_cached(fetch_fn, cache, now, ttl=300):
     data = None
     try:
         if not FRESH and os.path.getmtime(cache) > now - ttl:
             data = json.load(open(cache))
+            if rolled_over(data, now):
+                data = None
     except Exception:
         pass
     if data is None:
@@ -55,18 +71,12 @@ def fetch_cached(fetch_fn, cache, now, ttl=300):
 def fmt_reset(ts):
     reset = datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).astimezone()
     secs = int((reset - datetime.datetime.now(datetime.timezone.utc)).total_seconds())
-    if secs > 86400:
-        return reset.strftime("%b %d %H:%M")
     if secs <= 0:
         return "now"
-    d, s = divmod(secs, 86400)
-    h, m = divmod(s, 3600)
-    m //= 60
-    if d > 0:
-        return f"{d}d {h}h"
-    if h > 0:
-        return f"{h}h {m}m"
-    return f"{m}m"
+    if secs > 86400:
+        return reset.strftime("%a %H:%M")
+    h, m = divmod(secs // 60, 60)
+    return f"in {h}h {m}m" if h else f"in {m}m"
 
 
 def row(label, pct, resets_at=None):
