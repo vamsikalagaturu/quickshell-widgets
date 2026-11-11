@@ -87,7 +87,8 @@ Popup {
         var e = filtered[selection]
         if (!e) return
         close()
-        e.execute()
+        // via Hyprland, not e.execute(): apps would inherit the Nix wrapper's QT_PLUGIN_PATH/LD_LIBRARY_PATH
+        Quickshell.execDetached(["hyprctl", "dispatch", "hl.dsp.exec_cmd(" + JSON.stringify("gtk-launch " + e.id) + ")"])
     }
 
     Card {
