@@ -174,7 +174,10 @@ Popup {
         return p.trackArtist ? t + "  —  " + p.trackArtist : t
     }
 
+    // A row can briefly outlive its node: Pipewire nulls a removed device
+    // before the model above rebuilds without it.
     function label(n) {
+        if (!n) return ""
         if (n.isStream)
             return n.properties["application.name"] || n.description || n.name
         return n.description || n.nickname || n.name
@@ -352,7 +355,7 @@ Popup {
                     readonly property bool isPlayer: modelData.kind === "player"
                     readonly property bool isProfile: modelData.kind === "profile"
                     readonly property bool hasLevel: !isHeader && !isPlayer && !isProfile
-                    readonly property var audio: hasLevel ? modelData.node.audio : null
+                    readonly property var audio: hasLevel && modelData.node ? modelData.node.audio : null
                     readonly property real vol: audio ? audio.volume : 0
                     readonly property bool muted: audio ? audio.muted : false
 
