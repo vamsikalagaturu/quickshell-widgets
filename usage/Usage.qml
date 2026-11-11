@@ -7,7 +7,7 @@ import Quickshell.Hyprland._GlobalShortcuts
 
 PanelWindow {
     id: win
-    visible: true
+    visible: false
     color: "transparent"
     anchors.right: true
     anchors.top: true
@@ -142,11 +142,28 @@ PanelWindow {
         id: autoHide
         interval: 5000
         repeat: false
-        running: true
         onTriggered: win.visible = false
     }
 
     Component.onCompleted: refresh(false)
+
+    // Peek for 5 s when quickshell starts, not on every hot reload of a .qml
+    // file: the marker holds the pid of the quickshell that already peeked.
+    // (PersistentProperties would be the obvious tool, but in this window it
+    // crashes quickshell 0.3.2 at load.)
+    function peek() {
+        win.visible = true
+        autoHide.start()
+        peekMarker.setText(String(Quickshell.processId))
+    }
+
+    FileView {
+        id: peekMarker
+        path: Quickshell.env("XDG_RUNTIME_DIR") + "/quickshell-usage-peeked"
+        printErrors: false
+        onLoaded: if (peekMarker.text().trim() !== String(Quickshell.processId)) win.peek()
+        onLoadFailed: win.peek()
+    }
 
     GlobalShortcut {
         appid: "quickshell"
