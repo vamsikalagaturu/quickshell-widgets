@@ -6,7 +6,7 @@ import "../common"
 
 // Clipboard history, styled to match the network panel and launcher.
 // Backed by cliphist, whose wl-paste watchers already run from
-// hypr/startup.conf -- this is only a picker over `cliphist list`.
+// hypr/lua/startup.lua -- this is only a picker over `cliphist list`.
 //
 // MODAL, vim-style. Three modes:
 //

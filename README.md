@@ -17,7 +17,7 @@ Hyprland/Quickshell widgets, all loaded by one quickshell process from the root 
 | `keybinds/` | SUPER + Shift + K | searchable list of the live Hyprland binds (`hyprctl binds -j`) |
 | `calc/` | SUPER + Alt + C / SUPER + = | `qalc` calculator; result updates as you type, Enter copies it |
 | `wallpaper/` | SUPER + Shift + W | thumbnail grid of `~/Pictures/wallpapers`, Enter applies with `swww`, Ctrl+R random |
-| `recorder/` | SUPER + F10 / SUPER + Shift + R | screen recorder (`wf-recorder`, Intel VAAPI): pick a monitor or region, audio and countdown; a pill with timer, stop and discard is the recording status (no waybar module); the same key stops |
+| `recorder/` | SUPER + F10 / SUPER + Shift + R | screen recorder (`wf-recorder`, Intel VAAPI): pick a monitor or region, audio and countdown; a draggable pill with timer, stop and discard (⇄ moves it between screens; drop it on waybar to dock into `group/recorder`); the same key stops |
 
 `common/` holds what they share: `Theme` (Nord Polar Night palette and the `s()` scale), `Popup` (a focusable panel toggled by a global shortcut; widgets override `open()`/`close()`), `Card`, `Toggle`, `ScrollTrack` and `Paths.local()` for scripts next to a QML file. Every widget file imports it with `import "../common"`.
 
@@ -72,18 +72,21 @@ Endpoint details (undocumented API, reverse-engineered): [gist.github.com/jtbr/4
 
 ### 4. Autostart + keybind (Hyprland)
 
-One line in `~/.config/hypr/startup.conf` starts every widget:
+With Hyprland's Lua config, one line in `~/.config/hypr/lua/startup.lua`, inside the
+`hl.on("hyprland.start", ...)` handler (Lua's replacement for `exec-once`), starts every widget:
 
-```
-exec-once = env QT_QUICK_BACKEND=software quickshell -p ~/.config/quickshell
+```lua
+hl.exec_cmd("env QT_QUICK_BACKEND=software quickshell -p " .. home .. "/.config/quickshell")
 ```
 
-In `~/.config/hypr/keybinds.conf`, bind each widget's global shortcut (`quickshell:toggle-<widget>`; the osd owns `quickshell:volume-*`, `mic-mute` and `brightness-*`), e.g.:
+In `~/.config/hypr/lua/keybinds.lua`, bind each widget's global shortcut (`quickshell:toggle-<widget>`; the osd owns `quickshell:volume-*`, `mic-mute` and `brightness-*`), e.g.:
 
+```lua
+hl.bind(mainMod .. " + semicolon", hl.dsp.global("quickshell:toggle-usage"), desc("toggle usage widget"))
+hl.bind(mainMod .. " + D", hl.dsp.global("quickshell:toggle-launcher"), desc("app launcher"))
 ```
-bindd = SUPER, semicolon, toggle usage widget, global, quickshell:toggle-usage
-bindd = SUPER, D, app launcher, global, quickshell:toggle-launcher
-```
+
+Anything else (waybar, scripts) opens a widget with `hyprctl dispatch 'hl.dsp.global("quickshell:toggle-<widget>")'`.
 
 Reload: `hyprctl reload`. Verify registration: `hyprctl globalshortcuts`.
 
@@ -103,8 +106,8 @@ Dependencies: [`gh`](https://cli.github.com/) (authenticated — `gh auth login`
 
 Keybind:
 
-```
-bindd = $mainMod, G, toggle github widget, global, quickshell:toggle-github
+```lua
+hl.bind(mainMod .. " + G", hl.dsp.global("quickshell:toggle-github"), desc("toggle github widget"))
 ```
 
 ### Attribution
@@ -144,8 +147,8 @@ Dependencies: `ss` (iproute2), `jq`, `curl`, `wl-copy`, `xdg-open`.
 
 Keybind:
 
-```
-bindd = $mainMod, P, toggle dev servers panel, global, quickshell:toggle-ports
+```lua
+hl.bind(mainMod .. " + P", hl.dsp.global("quickshell:toggle-ports"), desc("toggle dev servers panel"))
 ```
 
 ### Attribution
