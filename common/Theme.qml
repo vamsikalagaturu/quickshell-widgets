@@ -18,8 +18,10 @@ QtObject {
     readonly property color danger: "#bf616a"
     readonly property color info: "#81a1c1"
 
-    readonly property string mono: Qt.fontFamilies().indexOf("JetBrainsMono Nerd Font Mono") !== -1
-        ? "JetBrainsMono Nerd Font Mono" : "monospace"
+    // Whichever JetBrainsMono Nerd Font variant is installed: plain "monospace"
+    // only borrows the icon glyphs from some other font, small and off-size.
+    readonly property string mono: ["JetBrainsMono Nerd Font Mono", "JetBrainsMono Nerd Font"]
+        .find(f => Qt.fontFamilies().indexOf(f) !== -1) || "monospace"
 
     // Single scaling knob. Every font size / row height / margin / radius in
     // the widget routes through s(px). Change this one number (e.g. to 1.25)

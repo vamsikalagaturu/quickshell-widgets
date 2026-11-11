@@ -49,11 +49,6 @@ Scope {
 
     readonly property bool busy: phase !== "idle" && phase !== "saved"
 
-    // Theme.mono wants the "Nerd Font Mono" variant, which isn't installed here;
-    // its fallback (plain monospace) only borrows the glyphs, small and off-size.
-    readonly property string iconFont: Qt.fontFamilies().indexOf("JetBrainsMono Nerd Font") !== -1
-        ? "JetBrainsMono Nerd Font" : Theme.mono
-
     // ---- screens -----------------------------------------------------------
 
     function screenNamed(name) {
@@ -409,7 +404,7 @@ Scope {
                     spacing: Theme.s(10)
                     Text {
                         text: ""
-                        font.family: rec.iconFont
+                        font.family: Theme.mono
                         font.pixelSize: Theme.s(15)
                         color: Theme.danger
                         anchors.verticalCenter: parent.verticalCenter
@@ -450,7 +445,7 @@ Scope {
                                 Text {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                     text: modelData.kind === "region" ? "" : ""
-                                    font.family: rec.iconFont
+                                    font.family: Theme.mono
                                     font.pixelSize: Theme.s(18)
                                     color: sel ? Theme.accent : Theme.dim
                                 }
@@ -504,7 +499,7 @@ Scope {
                                 spacing: Theme.s(7)
                                 Text {
                                     text: modelData.icon
-                                    font.family: rec.iconFont
+                                    font.family: Theme.mono
                                     font.pixelSize: Theme.s(12)
                                     color: Theme.text
                                     anchors.verticalCenter: parent.verticalCenter
@@ -544,7 +539,7 @@ Scope {
                     Text {
                         anchors.verticalCenter: parent.verticalCenter
                         text: "  Countdown 3 s"
-                        font.family: rec.iconFont
+                        font.family: Theme.mono
                         font.pixelSize: Theme.s(11)
                         color: Theme.dim
                     }
@@ -565,7 +560,7 @@ Scope {
                     Text {
                         anchors.centerIn: parent
                         text: "  Start recording"
-                        font.family: rec.iconFont
+                        font.family: Theme.mono
                         font.pixelSize: Theme.s(12)
                         font.bold: true
                         color: Theme.text
@@ -705,7 +700,7 @@ Scope {
                         : rec.phase === "stopping" ? "Saving…"
                         : rec.phase === "saved" ? "Saved"
                         : rec.clock(rec.elapsed)
-                    font.family: rec.iconFont
+                    font.family: Theme.mono
                     font.pixelSize: Theme.s(13)
                     font.bold: true
                     color: Theme.text
@@ -716,7 +711,7 @@ Scope {
                     text: rec.phase === "saved" ? rec.shortFile + "  ·  " + rec.clock(rec.elapsed)
                         : (rec.geometry ? "Region" : rec.outputName)
                         + (rec.audio === "mic" ? "  " : rec.audio === "system" ? "  " : "")
-                    font.family: rec.iconFont
+                    font.family: Theme.mono
                     font.pixelSize: Theme.s(10)
                     color: Theme.muted
                 }
@@ -794,7 +789,7 @@ Scope {
         Text {
             anchors.centerIn: parent
             text: btn.icon
-            font.family: rec.iconFont
+            font.family: Theme.mono
             font.pixelSize: Theme.s(12)
             color: btn.tint
         }
