@@ -12,6 +12,7 @@ import "calendar" as Calendar
 import "keybinds" as Keybinds
 import "calc" as Calc
 import "wallpaper" as Wallpaper
+import "recorder" as Recorder
 
 // All widgets in one quickshell process: one QML engine instead of one per widget.
 // Each folder still runs alone for testing: quickshell -p <folder>
@@ -29,4 +30,5 @@ ShellRoot {
     Keybinds.Keybinds {}
     Calc.Calc {}
     Wallpaper.Wallpaper {}
+    Recorder.Recorder {}
 }
