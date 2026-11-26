@@ -16,7 +16,7 @@ import "../common"
 Scope {
     id: rec
 
-    // idle | picking | countdown | recording | stopping | saved
+    // idle | picking | ready | countdown | recording | stopping | saved
     property string phase: "idle"
     property int sourceIndex: 0
     property string audio: "mic"            // none | mic | system
@@ -33,18 +33,14 @@ Scope {
 
     readonly property string videos: Quickshell.env("HOME") + "/Videos"
 
-    // The env points libva at nvidia, which can't encode here; the Intel iGPU
-    // can. renderD128/129 swap between boots, so address it by PCI path.
-    readonly property string renderNode: "/dev/dri/by-path/pci-0000:00:02.0-render"
-
     readonly property var sources: Quickshell.screens.map(s => ({
         kind: "screen", name: s.name, label: s.name, detail: s.width + "×" + s.height
     })).concat([{ kind: "region", name: "", label: "Region", detail: "drag, or click a window" }])
 
     readonly property var audioModes: [
         { id: "none", label: "None", icon: String.fromCodePoint(0xF0581) },
-        { id: "mic", label: "Mic", icon: "" },
-        { id: "system", label: "System", icon: "" }
+        { id: "mic", label: "Mic", icon: String.fromCodePoint(0xF036C) },
+        { id: "system", label: "System", icon: String.fromCodePoint(0xF057E) }
     ]
 
     readonly property bool busy: phase !== "idle" && phase !== "saved"
@@ -135,6 +131,7 @@ Scope {
 
     function quickRegion() {
         if (phase === "recording") { stop(); return }
+        if (phase === "ready") { beginCountdown(); return }
         if (busy) return
         start(true)
     }
@@ -150,7 +147,9 @@ Scope {
     function startRecording() {
         var stamp = Qt.formatDateTime(new Date(), "yyyy-MM-dd_HH-mm-ss")
         file = videos + "/" + stamp + ".mp4"
-        var cmd = ["wf-recorder", "-c", "h264_vaapi", "-d", renderNode, "-f", file]
+        // NVENC, not Intel VAAPI: VAAPI garbles regions of some widths (1242, 1248).
+        // bf=0: with B-frames wf-recorder writes pts < dts and the mp4 loses most frames.
+        var cmd = ["wf-recorder", "-c", "h264_nvenc", "-p", "bf=0", "-f", file]
         cmd = cmd.concat(geometry ? ["-g", geometry] : ["-o", outputName])
         var src = audioSource()
         if (src) cmd.push("--audio=" + src)
@@ -175,6 +174,7 @@ Scope {
     }
 
     function cancel() {
+        if (phase === "ready") { phase = "idle"; return }
         if (phase === "countdown") { countTimer.stop(); phase = "idle"; return }
         if (phase === "recording") { discard = true; stop() }
     }
@@ -300,7 +300,8 @@ Scope {
             var g = pickOut.text.trim()
             if (code !== 0 || !rec.parseGeometry(g)) { rec.phase = "idle"; return }
             rec.geometry = g
-            rec.beginCountdown()
+            rec.pillOn = rec.choosePillScreen()
+            rec.phase = "ready"
         }
     }
 
@@ -361,6 +362,7 @@ Scope {
         function open() {
             if (rec.phase === "recording") { rec.stop(); return }
             if (rec.phase === "countdown") { rec.cancel(); return }
+            if (rec.phase === "ready") { rec.beginCountdown(); return }
             if (rec.busy) return
             rec.dismiss()
             if (rec.sourceIndex >= rec.sources.length) rec.sourceIndex = 0
@@ -598,8 +600,9 @@ Scope {
 
     PanelWindow {
         id: pill
-        visible: !rec.docked && (rec.phase === "countdown" || rec.phase === "recording"
-                 || rec.phase === "stopping" || rec.phase === "saved")
+        // The waybar dock has no ready controls, so ready always floats.
+        visible: rec.phase === "ready" || !rec.docked && (rec.phase === "countdown"
+                 || rec.phase === "recording" || rec.phase === "stopping" || rec.phase === "saved")
         screen: rec.pillScreen
         focusable: false
         color: "transparent"
@@ -683,7 +686,7 @@ Scope {
                     id: dot
                     width: Theme.s(11); height: width; radius: width / 2
                     anchors.verticalCenter: parent.verticalCenter
-                    color: rec.phase === "countdown" ? Theme.warn
+                    color: rec.phase === "countdown" || rec.phase === "ready" ? Theme.warn
                          : rec.phase === "saved" ? Theme.ok : Theme.danger
                     SequentialAnimation on opacity {
                         running: rec.phase === "recording"
@@ -697,6 +700,7 @@ Scope {
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
                     text: rec.phase === "countdown" ? "Starting in " + rec.remaining
+                        : rec.phase === "ready" ? "Ready"
                         : rec.phase === "stopping" ? "Saving…"
                         : rec.phase === "saved" ? "Saved"
                         : rec.clock(rec.elapsed)
@@ -709,6 +713,7 @@ Scope {
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
                     text: rec.phase === "saved" ? rec.shortFile + "  ·  " + rec.clock(rec.elapsed)
+                        : rec.phase === "ready" ? (rec.region ? rec.region.w + "×" + rec.region.h : "")
                         : (rec.geometry ? "Region" : rec.outputName)
                         + (rec.audio === "mic" ? "  " : rec.audio === "system" ? "  " : "")
                     font.family: Theme.mono
@@ -716,9 +721,29 @@ Scope {
                     color: Theme.muted
                 }
 
+                Repeater {
+                    model: rec.phase === "ready" ? rec.audioModes : []
+                    delegate: PillButton {
+                        required property var modelData
+                        icon: modelData.icon
+                        on: rec.audio === modelData.id
+                        tint: on ? Theme.accent : Theme.muted
+                        hint: "Audio: " + modelData.label
+                        onClicked: rec.audio = modelData.id
+                    }
+                }
+
+                PillButton {
+                    visible: rec.phase === "ready"
+                    icon: String.fromCodePoint(0xF044A)
+                    tint: Theme.danger
+                    hint: "Start recording"
+                    onClicked: rec.beginCountdown()
+                }
+
                 PillButton {
                     visible: Quickshell.screens.length > 1
-                    icon: ""
+                    icon: String.fromCodePoint(0xF04E1)
                     tint: Theme.accent
                     hint: "Move to the next screen"
                     onClicked: rec.nextPillScreen()
@@ -726,23 +751,23 @@ Scope {
 
                 PillButton {
                     visible: rec.phase === "recording"
-                    icon: ""
+                    icon: String.fromCodePoint(0xF04DB)
                     tint: Theme.danger
                     hint: "Stop and save to ~/Videos"
                     onClicked: rec.stop()
                 }
 
                 PillButton {
-                    visible: rec.phase === "countdown" || rec.phase === "recording"
-                    icon: rec.phase === "countdown" ? "" : ""
+                    visible: rec.phase === "ready" || rec.phase === "countdown" || rec.phase === "recording"
+                    icon: rec.phase === "recording" ? String.fromCodePoint(0xF01B4) : String.fromCodePoint(0xF0156)
                     tint: Theme.muted
-                    hint: rec.phase === "countdown" ? "Cancel" : "Stop and discard (moves to trash)"
+                    hint: rec.phase === "recording" ? "Stop and discard (moves to trash)" : "Cancel"
                     onClicked: rec.cancel()
                 }
 
                 PillButton {
                     visible: rec.phase === "saved"
-                    icon: ""
+                    icon: String.fromCodePoint(0xF040A)
                     tint: Theme.ok
                     hint: "Open the video"
                     onClicked: rec.openFile()
@@ -750,7 +775,7 @@ Scope {
 
                 PillButton {
                     visible: rec.phase === "saved"
-                    icon: ""
+                    icon: String.fromCodePoint(0xF0770)
                     tint: Theme.accent
                     hint: "Show in folder"
                     onClicked: rec.showFolder()
@@ -758,7 +783,7 @@ Scope {
 
                 PillButton {
                     visible: rec.phase === "saved"
-                    icon: ""
+                    icon: String.fromCodePoint(0xF01B4)
                     tint: Theme.danger
                     hint: "Delete (moves to trash)"
                     onClicked: rec.deleteFile()
@@ -766,7 +791,7 @@ Scope {
 
                 PillButton {
                     visible: rec.phase === "saved"
-                    icon: ""
+                    icon: String.fromCodePoint(0xF0156)
                     tint: Theme.muted
                     hint: "Close"
                     onClicked: rec.dismiss()
@@ -780,17 +805,18 @@ Scope {
         property string icon
         property color tint
         property string hint
+        property bool on: false
         signal clicked()
 
         anchors.verticalCenter: parent.verticalCenter
         width: Theme.s(30); height: width; radius: width / 2
-        color: area.containsMouse ? Theme.surfaceAlt : Theme.surface
+        color: on ? Theme.accentDim : area.containsMouse ? Theme.surfaceAlt : Theme.surface
 
         Text {
             anchors.centerIn: parent
             text: btn.icon
             font.family: Theme.mono
-            font.pixelSize: Theme.s(12)
+            font.pixelSize: Theme.s(16)
             color: btn.tint
         }
 
@@ -835,7 +861,7 @@ Scope {
     // the area without ending up in the video.
     PanelWindow {
         visible: rec.region !== null && rec.targetScreen !== null
-                 && (rec.phase === "countdown" || rec.phase === "recording")
+                 && (rec.phase === "ready" || rec.phase === "countdown" || rec.phase === "recording")
         screen: rec.targetScreen
         focusable: false
         color: "transparent"
@@ -853,7 +879,7 @@ Scope {
             height: rec.region ? rec.region.h + pad * 2 : 0
             color: "transparent"
             border.width: 2
-            border.color: rec.phase === "countdown" ? Theme.warn : Theme.danger
+            border.color: rec.phase === "recording" ? Theme.danger : Theme.warn
         }
     }
 }
